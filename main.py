@@ -56,7 +56,8 @@ async def check_trust(request: CheckRequest):
                 }
             ],
             # We use Llama 3 8B (Fast & Smart)
-            model="llama3-8b-8192",
+            model="llama-3.1-8b-instant",
+
             temperature=0, # Keep it strict
             response_format={"type": "json_object"} # Force JSON mode
         )
@@ -82,3 +83,4 @@ async def check_trust(request: CheckRequest):
     except Exception as e:
         print(f"CRITICAL ERROR: {e}")
         return {"score": 0, "color": "Red", "reason": "AI Error. Try again."}
+
