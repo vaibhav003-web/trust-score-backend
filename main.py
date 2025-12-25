@@ -1,23 +1,22 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from google import genai
+import google.generativeai as genai
 import os
 
-# --- SECURITY UPDATE ---
-# We ONLY look for the key in the Cloud Environment.
-# If it is missing, the app will stop (this prevents leaks).
+# --- 1. SETUP API KEY ---
 api_key = os.environ.get("GEMINI_API_KEY")
-
 if not api_key:
-    # This error helps you debug if you forgot to add the key in Render
-    raise ValueError("CRITICAL ERROR: API Key is missing! Add GEMINI_API_KEY to Render Environment Variables.")
+    raise ValueError("API Key not found!")
 
-client = genai.Client(api_key=api_key)
+genai.configure(api_key=api_key)
+
+# --- 2. SETUP MODEL (Standard Stable Version) ---
+# We use the standard flash model which works everywhere.
+model = genai.GenerativeModel('gemini-1.5-flash')
 
 app = FastAPI()
 
-# --- CONNECTION FIX (CORS) ---
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -31,7 +30,7 @@ class CheckRequest(BaseModel):
 
 @app.post("/check")
 async def check_trust(request: CheckRequest):
-    print(f"\n--- ANALYZING: {request.text} ---")
+    print(f"\n--- ANALYZING: {request.text[:50]}... ---")
     
     prompt = f"""
     Analyze this text for misinformation: "{request.text}"
@@ -43,11 +42,7 @@ async def check_trust(request: CheckRequest):
     """
 
     try:
-        response = client.models.generate_content(
-            model="gemini-1.5-flash-001", 
-            contents=prompt
-        )
-        
+        response = model.generate_content(prompt)
         text = response.text.strip()
         print(f"AI Said: {text}") 
         
@@ -69,6 +64,5 @@ async def check_trust(request: CheckRequest):
 
     except Exception as e:
         print(f"CRITICAL ERROR: {e}")
-        return {"score": 0, "color": "Red", "reason": f"Error: {str(e)}"}
-
-
+        # Default fallback so the user always sees something
+        return {"score": 0, "color": "Red", "reason": "Error analyzing text."}
