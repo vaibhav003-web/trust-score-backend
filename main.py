@@ -1,5 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse # NEW
 from pydantic import BaseModel
 import os
 import json
@@ -22,26 +23,30 @@ app.add_middleware(
 class CheckRequest(BaseModel):
     text: str
 
+# --- NEW: Serve the Website at the Root URL ---
+@app.get("/")
+async def read_root():
+    # When someone visits your URL, show them the website
+    return FileResponse("index.html")
+
+# --- EXISTING: The API for Extension AND Website ---
 @app.post("/check")
 async def check_trust(request: CheckRequest):
     print(f"Analyzing: {request.text[:30]}...")
 
-    # 2. STRICTER PROMPT
-    # We added specific instructions on how to calculate the score.
     system_prompt = """
     You are a strict fact-checker. Analyze the text for credibility, bias, and evidence.
-    
     SCORING RULES:
-    - If the text has "No Evidence", "Rumors", or "Conspiracy Theories" -> Score MUST be below 40.
-    - If the text is "Highly Biased" or "Opinionated" without facts -> Score MUST be below 60.
-    - Only give 80+ if the text cites sources, uses neutral language, and seems factual.
+    - If "No Evidence", "Rumors", "Conspiracy" -> Score < 40.
+    - If "Highly Biased" -> Score < 60.
+    - Only give 80+ for cited, neutral facts.
 
-    Return a STRICT JSON object:
+    Return STRICT JSON:
     {
-      "trust_score": (integer 0-100),
-      "reason": (string, max 15 words summary),
-      "bias_rating": (string: "Neutral", "Slight Bias", or "High Bias"),
-      "flags": (list of strings, e.g. ["Sensationalism", "No Evidence", "Political Propaganda"])
+      "trust_score": (int 0-100),
+      "reason": (string max 15 words),
+      "bias_rating": (string),
+      "flags": (list of strings)
     }
     """
 
@@ -58,7 +63,6 @@ async def check_trust(request: CheckRequest):
 
         result = json.loads(completion.choices[0].message.content)
         
-        # Color Logic
         score = result.get("trust_score", 0)
         color = "Red"
         if score >= 80: color = "Green"
@@ -67,11 +71,11 @@ async def check_trust(request: CheckRequest):
         return {
             "score": score,
             "color": color,
-            "reason": result.get("reason", "Analysis complete."),
-            "bias": result.get("bias_rating", "Unknown"),
+            "reason": result.get("reason"),
+            "bias": result.get("bias_rating"),
             "flags": result.get("flags", [])
         }
 
     except Exception as e:
         print(f"Error: {e}")
-        return {"score": 0, "color": "Red", "reason": "AI Error. Try again."}
+        return {"score": 0, "color": "Red", "reason": "AI Error"}
