@@ -44,7 +44,7 @@ async def check_trust(request: CheckRequest):
 
     try:
         response = client.models.generate_content(
-            model="gemini-flash-latest", 
+            model="gemini-1.5-flash", 
             contents=prompt
         )
         
@@ -70,3 +70,4 @@ async def check_trust(request: CheckRequest):
     except Exception as e:
         print(f"CRITICAL ERROR: {e}")
         return {"score": 0, "color": "Red", "reason": f"Error: {str(e)}"}
+
