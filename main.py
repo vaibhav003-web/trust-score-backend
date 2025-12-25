@@ -26,20 +26,26 @@ class CheckRequest(BaseModel):
 async def check_trust(request: CheckRequest):
     print(f"Analyzing: {request.text[:30]}...")
 
-    # 2. PROMPT - We now ask for specific JSON fields: score, reason, bias, flags
+    # 2. STRICTER PROMPT
+    # We added specific instructions on how to calculate the score.
     system_prompt = """
-    You are an expert fact-checker. Analyze the text for credibility, bias, and logical fallacies.
-    Return a STRICT JSON object with these exact fields:
+    You are a strict fact-checker. Analyze the text for credibility, bias, and evidence.
+    
+    SCORING RULES:
+    - If the text has "No Evidence", "Rumors", or "Conspiracy Theories" -> Score MUST be below 40.
+    - If the text is "Highly Biased" or "Opinionated" without facts -> Score MUST be below 60.
+    - Only give 80+ if the text cites sources, uses neutral language, and seems factual.
+
+    Return a STRICT JSON object:
     {
       "trust_score": (integer 0-100),
       "reason": (string, max 15 words summary),
       "bias_rating": (string: "Neutral", "Slight Bias", or "High Bias"),
-      "flags": (list of strings, e.g. ["Sensationalism", "Political Propaganda", "Logical Fallacy", "No Evidence"])
+      "flags": (list of strings, e.g. ["Sensationalism", "No Evidence", "Political Propaganda"])
     }
     """
 
     try:
-        # 3. Call AI
         completion = client.chat.completions.create(
             messages=[
                 {"role": "system", "content": system_prompt},
@@ -50,16 +56,14 @@ async def check_trust(request: CheckRequest):
             response_format={"type": "json_object"}
         )
 
-        # 4. Parse Data
         result = json.loads(completion.choices[0].message.content)
         
-        # Calculate Color
+        # Color Logic
         score = result.get("trust_score", 0)
         color = "Red"
         if score >= 80: color = "Green"
         elif score >= 50: color = "Yellow"
 
-        # Return Expanded Data
         return {
             "score": score,
             "color": color,
