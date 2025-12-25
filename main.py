@@ -4,16 +4,16 @@ from pydantic import BaseModel
 import google.generativeai as genai
 import os
 
-# --- 1. SETUP API KEY ---
+# --- SETUP ---
 api_key = os.environ.get("GEMINI_API_KEY")
 if not api_key:
-    raise ValueError("API Key not found!")
+    print("CRITICAL: API Key is missing.")
 
 genai.configure(api_key=api_key)
 
-# --- 2. SETUP MODEL (Standard Stable Version) ---
-# We use the standard flash model which works everywhere.
-model = genai.GenerativeModel('gemini-1.5-flash')
+# WE ARE SWITCHING TO THE STANDARD MODEL
+# 'gemini-pro' is the most stable version.
+model = genai.GenerativeModel('gemini-pro')
 
 app = FastAPI()
 
@@ -30,7 +30,7 @@ class CheckRequest(BaseModel):
 
 @app.post("/check")
 async def check_trust(request: CheckRequest):
-    print(f"\n--- ANALYZING: {request.text[:50]}... ---")
+    print(f"\n--- ANALYZING: {request.text[:30]}... ---")
     
     prompt = f"""
     Analyze this text for misinformation: "{request.text}"
@@ -43,6 +43,10 @@ async def check_trust(request: CheckRequest):
 
     try:
         response = model.generate_content(prompt)
+        # Check if response was blocked or empty
+        if not response.text:
+            return {"score": 50, "color": "Yellow", "reason": "AI response was empty."}
+            
         text = response.text.strip()
         print(f"AI Said: {text}") 
         
@@ -63,6 +67,6 @@ async def check_trust(request: CheckRequest):
         return {"score": score, "color": color, "reason": reason}
 
     except Exception as e:
-        print(f"CRITICAL ERROR: {e}")
-        # Default fallback so the user always sees something
-        return {"score": 0, "color": "Red", "reason": "Error analyzing text."}
+        print(f"ERROR: {e}")
+        # If the AI fails, return a safe fallback so the user doesn't see a crash
+        return {"score": 0, "color": "Red", "reason": "Connection Error. Please try again."}
