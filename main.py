@@ -5,12 +5,13 @@ from google import genai
 import os
 
 # --- SECURITY UPDATE ---
-# 1. Try to get key from Cloud Environment (Safe Box)
+# We ONLY look for the key in the Cloud Environment.
+# If it is missing, the app will stop (this prevents leaks).
 api_key = os.environ.get("GEMINI_API_KEY")
 
-# 2. If not found (running on laptop), use this backup key
 if not api_key:
-    api_key = "AIzaSyBKjIJKHbliSyaxxMyo79SDQu5z8QPDS3E" 
+    # This error helps you debug if you forgot to add the key in Render
+    raise ValueError("CRITICAL ERROR: API Key is missing! Add GEMINI_API_KEY to Render Environment Variables.")
 
 client = genai.Client(api_key=api_key)
 
