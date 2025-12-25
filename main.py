@@ -1,19 +1,17 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-import google.generativeai as genai
+import requests
 import os
 
 # --- SETUP ---
-api_key = os.environ.get("GEMINI_API_KEY")
-if not api_key:
+# We use the raw API URL for Gemini 1.5 Flash (The high-quota model)
+API_KEY = os.environ.get("GEMINI_API_KEY")
+if not API_KEY:
     print("CRITICAL: API Key is missing.")
 
-genai.configure(api_key=api_key)
-
-# WE ARE SWITCHING TO THE STANDARD MODEL
-# 'gemini-pro' is the most stable version.
-model = genai.GenerativeModel('gemini-pro')
+# DIRECT URL - No library confusion
+URL = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={API_KEY}"
 
 app = FastAPI()
 
@@ -32,25 +30,37 @@ class CheckRequest(BaseModel):
 async def check_trust(request: CheckRequest):
     print(f"\n--- ANALYZING: {request.text[:30]}... ---")
     
-    prompt = f"""
-    Analyze this text for misinformation: "{request.text}"
-    
-    Return the response in this EXACT format (no markdown):
-    Score: [0-100] (Where 0 is Fake/Misinformation, 100 is True/Verified)
-    Color: [Red/Yellow/Green]
-    Reason: [Short explanation]
-    """
+    # 1. Prepare the payload (The message to Google)
+    payload = {
+        "contents": [{
+            "parts": [{
+                "text": f"""
+                Analyze this text for misinformation: "{request.text}"
+                
+                Return the response in this EXACT format (no markdown):
+                Score: [0-100]
+                Color: [Red/Yellow/Green]
+                Reason: [Short explanation]
+                """
+            }]
+        }]
+    }
 
+    # 2. Send via Direct "Requests" (Bypassing the Google Library)
     try:
-        response = model.generate_content(prompt)
-        # Check if response was blocked or empty
-        if not response.text:
-            return {"score": 50, "color": "Yellow", "reason": "AI response was empty."}
-            
-        text = response.text.strip()
-        print(f"AI Said: {text}") 
+        response = requests.post(URL, json=payload, headers={"Content-Type": "application/json"})
+        data = response.json()
         
-        lines = text.split('\n')
+        # Check for errors in the raw response
+        if "error" in data:
+            print(f"GOOGLE ERROR: {data['error']}")
+            return {"score": 0, "color": "Red", "reason": f"API Error: {data['error'].get('message', 'Unknown')}"}
+
+        # 3. Parse the success message
+        ai_text = data["candidates"][0]["content"]["parts"][0]["text"]
+        print(f"AI Said: {ai_text}")
+
+        lines = ai_text.split('\n')
         score = 0
         color = "Red"
         reason = "Could not parse"
@@ -67,6 +77,5 @@ async def check_trust(request: CheckRequest):
         return {"score": score, "color": color, "reason": reason}
 
     except Exception as e:
-        print(f"ERROR: {e}")
-        # If the AI fails, return a safe fallback so the user doesn't see a crash
-        return {"score": 0, "color": "Red", "reason": "Connection Error. Please try again."}
+        print(f"CRITICAL ERROR: {e}")
+        return {"score": 0, "color": "Red", "reason": "Connection failed."}
