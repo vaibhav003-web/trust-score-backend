@@ -7,8 +7,10 @@ import json
 
 # --- CONFIG ---
 API_KEY = os.environ.get("GEMINI_API_KEY")
-# Direct URL to Google (Bypasses the buggy Python library)
-URL = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={API_KEY}"
+
+# FIX: Switched from 'v1beta' to 'v1' (Stable Endpoint)
+# This solves the 404 "Model Not Found" error.
+URL = f"https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key={API_KEY}"
 
 app = FastAPI()
 
@@ -27,62 +29,70 @@ class CheckRequest(BaseModel):
 async def check_trust(request: CheckRequest):
     print(f"\n--- ANALYZING: {request.text[:30]}... ---")
     
-    # --- YOUR NEW PROMPT ---
-    system_prompt = f"""
-    You are an impartial, analytical AI system.
-    Your task is to evaluate the trustworthiness of the given content.
-    Respond strictly in JSON format only.
+    # YOUR STRICT JSON PROMPT
+    system_prompt = """
+    You are a fact-checking and credibility analysis system.
 
-    Analyze the following content:
-    \"\"\"
-    {request.text}
-    \"\"\"
+    Analyze the following text and evaluate how trustworthy it is.
 
-    Instructions:
-    1. Detect factual accuracy, logical consistency, and emotional manipulation.
-    2. Output JSON format:
-    {{
-      "trust_score": number (0-100),
-      "recommendation": "trust" | "verify" | "avoid",
-      "summary": "Short explanation (max 1 sentence)"
-    }}
+    Criteria:
+    - Factual accuracy
+    - Logical consistency
+    - Emotional manipulation or bias
+    - Misinformation or exaggeration
+    - Source reliability (if implied)
+
+    Return ONLY a valid JSON object in this exact format:
+    {
+      "trust_score": number, 
+      "reason": "short explanation"
+    }
+
+    Be strict. Assume the text is untrusted unless strong evidence supports it.
     """
 
+    # Prepare payload for Gemini
     payload = {
-        "contents": [{"parts": [{"text": system_prompt}]}]
+        "contents": [{
+            "parts": [{
+                "text": f"{system_prompt}\n\nText to analyze:\n\"\"\"{request.text}\"\"\""
+            }]
+        }]
     }
 
     try:
-        # Direct Request (No Library)
+        # Send Request to v1 Endpoint
         response = requests.post(URL, json=payload, headers={"Content-Type": "application/json"})
         data = response.json()
 
-        # Error Handling
+        # 1. Check for API Errors
         if "error" in data:
             print(f"GOOGLE ERROR: {data['error']}")
-            return {"score": 0, "color": "Red", "reason": "API Error. Please try again."}
+            return {"score": 0, "color": "Red", "reason": f"API Error: {data['error'].get('message', 'Unknown')}"}
 
-        # Parse AI Response
+        # 2. Extract Text
         ai_text = data["candidates"][0]["content"]["parts"][0]["text"]
         
-        # Clean up JSON (sometimes AI adds ```json marks)
+        # 3. Clean JSON (Remove ```json ... ``` wrappers if present)
         ai_text = ai_text.replace("```json", "").replace("```", "").strip()
-        result = json.loads(ai_text)
-
-        # Map your JSON to the Frontend (Popup) format
-        # Your prompt returns "recommendation", we convert it to "Color"
-        color_map = {
-            "trust": "Green",
-            "verify": "Yellow",
-            "avoid": "Red"
-        }
         
+        # 4. Parse JSON
+        result = json.loads(ai_text)
+        
+        # 5. Determine Color based on Score
+        score = result.get("trust_score", 0)
+        color = "Red"
+        if score >= 80:
+            color = "Green"
+        elif score >= 50:
+            color = "Yellow"
+
         return {
-            "score": result.get("trust_score", 0),
-            "color": color_map.get(result.get("recommendation", "verify"), "Yellow"),
-            "reason": result.get("summary", "Analysis complete.")
+            "score": score,
+            "color": color,
+            "reason": result.get("reason", "No reason provided.")
         }
 
     except Exception as e:
         print(f"CRITICAL ERROR: {e}")
-        return {"score": 0, "color": "Red", "reason": "Connection Error."}
+        return {"score": 0, "color": "Red", "reason": "Error parsing AI response."}
