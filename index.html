@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Trust Score AI - SaaS</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+</head>
+<body class="bg-gray-50 text-gray-800 font-sans">
+
+    <nav class="bg-white shadow-sm p-4">
+        <div class="max-w-4xl mx-auto flex justify-between items-center">
+            <h1 class="text-2xl font-bold text-blue-600"><i class="fas fa-shield-alt"></i> Trust Score AI</h1>
+            <a href="#" class="text-gray-500 hover:text-blue-600 font-medium">Pricing</a>
+        </div>
+    </nav>
+
+    <div class="max-w-3xl mx-auto mt-12 p-6">
+        
+        <div class="text-center mb-10">
+            <h2 class="text-4xl font-extrabold text-gray-900 mb-3">Is that news real?</h2>
+            <p class="text-lg text-gray-600">Paste any article, tweet, or WhatsApp forward below. Our AI detects bias, fake news, and propaganda instantly.</p>
+        </div>
+
+        <div class="bg-white rounded-xl shadow-lg p-6 border border-gray-100">
+            <textarea id="inputText" class="w-full h-40 p-4 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none text-lg" placeholder="Paste text here to analyze..."></textarea>
+            
+            <div class="flex justify-between items-center mt-4">
+                <span class="text-sm text-gray-400"><i class="fas fa-lock"></i> Analysis is private</span>
+                <button onclick="analyze()" id="analyzeBtn" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-8 rounded-lg transition-all transform active:scale-95 shadow-md">
+                    Analyze Text
+                </button>
+            </div>
+        </div>
+
+        <div id="loader" class="hidden text-center mt-8">
+            <div class="inline-block animate-spin rounded-full h-10 w-10 border-b-2 border-blue-600"></div>
+            <p class="text-gray-500 mt-2">AI is reading...</p>
+        </div>
+
+        <div id="results" class="hidden mt-8 bg-white rounded-xl shadow-lg border border-gray-100 overflow-hidden">
+            <div id="headerColor" class="p-6 text-white text-center">
+                <div class="text-6xl font-bold mb-2" id="scoreDisplay">--</div>
+                <div class="text-xl uppercase tracking-wide font-semibold" id="statusDisplay">--</div>
+            </div>
+
+            <div class="p-6 grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div class="col-span-1 md:col-span-2">
+                    <h3 class="font-bold text-gray-700 mb-2">💡 AI Analysis</h3>
+                    <p id="reasonDisplay" class="text-gray-600 bg-gray-50 p-3 rounded-lg border"></p>
+                </div>
+                
+                <div>
+                    <h3 class="font-bold text-gray-700 mb-2">⚖️ Bias Rating</h3>
+                    <p id="biasDisplay" class="text-lg font-medium text-gray-800">--</p>
+                </div>
+
+                <div>
+                    <h3 class="font-bold text-gray-700 mb-2">🚩 Risk Flags</h3>
+                    <ul id="flagsList" class="list-disc pl-5 text-red-500 text-sm space-y-1"></ul>
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <script>
+        async function analyze() {
+            const text = document.getElementById("inputText").value;
+            if (!text) return alert("Please enter some text!");
+
+            // UI Updates
+            const btn = document.getElementById("analyzeBtn");
+            const loader = document.getElementById("loader");
+            const results = document.getElementById("results");
+            
+            btn.disabled = true;
+            btn.innerText = "Analyzing...";
+            loader.classList.remove("hidden");
+            results.classList.add("hidden");
+
+            try {
+                // Call the SAME API your extension uses
+                const response = await fetch("/check", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ text: text })
+                });
+
+                const data = await response.json();
+                
+                // Update Results
+                document.getElementById("scoreDisplay").innerText = data.score;
+                document.getElementById("reasonDisplay").innerText = data.reason;
+                document.getElementById("biasDisplay").innerText = data.bias;
+                
+                // Set Colors
+                const header = document.getElementById("headerColor");
+                const status = document.getElementById("statusDisplay");
+                
+                header.className = `p-6 text-white text-center ${data.color === 'Green' ? 'bg-green-500' : data.color === 'Yellow' ? 'bg-yellow-500' : 'bg-red-500'}`;
+                
+                status.innerText = data.color === 'Green' ? "Verified Credible" : data.color === 'Yellow' ? "Caution / Unverified" : "High Risk / Fake";
+
+                // Flags
+                const list = document.getElementById("flagsList");
+                list.innerHTML = "";
+                data.flags.forEach(flag => {
+                    const li = document.createElement("li");
+                    li.innerText = flag;
+                    list.appendChild(li);
+                });
+
+                loader.classList.add("hidden");
+                results.classList.remove("hidden");
+
+            } catch (err) {
+                alert("Error connecting to server. Please try again.");
+                console.error(err);
+            } finally {
+                btn.disabled = false;
+                btn.innerText = "Analyze Text";
+            }
+        }
+    </script>
+</body>
+</html>
