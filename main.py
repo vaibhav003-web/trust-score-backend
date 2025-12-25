@@ -5,13 +5,7 @@ import os
 import json
 from groq import Groq
 
-# --- CONFIG ---
-# We now look for the GROQ_API_KEY
 api_key = os.environ.get("GROQ_API_KEY")
-if not api_key:
-    print("CRITICAL: GROQ_API_KEY is missing.")
-
-# Initialize the Groq Client
 client = Groq(api_key=api_key)
 
 app = FastAPI()
@@ -29,58 +23,48 @@ class CheckRequest(BaseModel):
 
 @app.post("/check")
 async def check_trust(request: CheckRequest):
-    print(f"\n--- ANALYZING (VIA GROQ): {request.text[:30]}... ---")
-    
-    # SYSTEM PROMPT (Strict JSON)
+    print(f"Analyzing: {request.text[:50]}...")
+
+    # UPGRADED SYSTEM PROMPT
+    # We now ask for 'bias_rating' and 'flags' in the JSON
     system_prompt = """
-    You are a fact-checking and credibility analysis system.
-    Analyze the submitted text.
-    Return ONLY a valid JSON object in this exact format:
+    You are an expert fact-checker. Analyze the text for credibility, tone, and logic.
+    Return a STRICT JSON object with these fields:
     {
-      "trust_score": number (0-100), 
-      "reason": "short explanation (max 15 words)"
+      "trust_score": (integer 0-100),
+      "reason": (string, max 15 words summary),
+      "bias_rating": (string: "Neutral", "Slight Bias", or "Highly Biased"),
+      "flags": (list of strings, e.g. ["Sensationalism", "Political Propaganda", "No Sources"])
     }
     """
 
     try:
-        # Send request to Llama 3 on Groq
         chat_completion = client.chat.completions.create(
             messages=[
-                {
-                    "role": "system",
-                    "content": system_prompt
-                },
-                {
-                    "role": "user",
-                    "content": request.text,
-                }
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": request.text}
             ],
-            # We use Llama 3 8B (Fast & Smart)
             model="llama-3.1-8b-instant",
-
-            temperature=0, # Keep it strict
-            response_format={"type": "json_object"} # Force JSON mode
+            temperature=0,
+            response_format={"type": "json_object"}
         )
 
-        # Parse Response
-        ai_response = chat_completion.choices[0].message.content
-        result = json.loads(ai_response)
+        result = json.loads(chat_completion.choices[0].message.content)
         
+        # Color Logic
         score = result.get("trust_score", 0)
-        
-        # Determine Color
         color = "Red"
         if score >= 80: color = "Green"
         elif score >= 50: color = "Yellow"
 
-        print(f"✅ SUCCESS: Score {score} - {color}")
         return {
             "score": score,
             "color": color,
-            "reason": result.get("reason", "Analysis complete.")
+            "reason": result.get("reason"),
+            "bias": result.get("bias_rating", "Unknown"),
+            "flags": result.get("flags", [])
         }
 
     except Exception as e:
-        print(f"CRITICAL ERROR: {e}")
-        return {"score": 0, "color": "Red", "reason": "AI Error. Try again."}
-
+        print(f"Error: {e}")
+        return {"score": 0, "color": "Red", "reason": "AI Error"}
