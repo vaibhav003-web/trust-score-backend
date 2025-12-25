@@ -5,6 +5,7 @@ import os
 import json
 from groq import Groq
 
+# 1. Setup
 api_key = os.environ.get("GROQ_API_KEY")
 client = Groq(api_key=api_key)
 
@@ -23,23 +24,23 @@ class CheckRequest(BaseModel):
 
 @app.post("/check")
 async def check_trust(request: CheckRequest):
-    print(f"Analyzing: {request.text[:50]}...")
+    print(f"Analyzing: {request.text[:30]}...")
 
-    # UPGRADED SYSTEM PROMPT
-    # We now ask for 'bias_rating' and 'flags' in the JSON
+    # 2. PROMPT - We now ask for specific JSON fields: score, reason, bias, flags
     system_prompt = """
-    You are an expert fact-checker. Analyze the text for credibility, tone, and logic.
-    Return a STRICT JSON object with these fields:
+    You are an expert fact-checker. Analyze the text for credibility, bias, and logical fallacies.
+    Return a STRICT JSON object with these exact fields:
     {
       "trust_score": (integer 0-100),
       "reason": (string, max 15 words summary),
-      "bias_rating": (string: "Neutral", "Slight Bias", or "Highly Biased"),
-      "flags": (list of strings, e.g. ["Sensationalism", "Political Propaganda", "No Sources"])
+      "bias_rating": (string: "Neutral", "Slight Bias", or "High Bias"),
+      "flags": (list of strings, e.g. ["Sensationalism", "Political Propaganda", "Logical Fallacy", "No Evidence"])
     }
     """
 
     try:
-        chat_completion = client.chat.completions.create(
+        # 3. Call AI
+        completion = client.chat.completions.create(
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": request.text}
@@ -49,22 +50,24 @@ async def check_trust(request: CheckRequest):
             response_format={"type": "json_object"}
         )
 
-        result = json.loads(chat_completion.choices[0].message.content)
+        # 4. Parse Data
+        result = json.loads(completion.choices[0].message.content)
         
-        # Color Logic
+        # Calculate Color
         score = result.get("trust_score", 0)
         color = "Red"
         if score >= 80: color = "Green"
         elif score >= 50: color = "Yellow"
 
+        # Return Expanded Data
         return {
             "score": score,
             "color": color,
-            "reason": result.get("reason"),
+            "reason": result.get("reason", "Analysis complete."),
             "bias": result.get("bias_rating", "Unknown"),
             "flags": result.get("flags", [])
         }
 
     except Exception as e:
         print(f"Error: {e}")
-        return {"score": 0, "color": "Red", "reason": "AI Error"}
+        return {"score": 0, "color": "Red", "reason": "AI Error. Try again."}
