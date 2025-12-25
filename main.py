@@ -8,9 +8,13 @@ import json
 # --- CONFIG ---
 API_KEY = os.environ.get("GEMINI_API_KEY")
 
-# FIX: Switched from 'v1beta' to 'v1' (Stable Endpoint)
-# This solves the 404 "Model Not Found" error.
-URL = f"https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key={API_KEY}"
+# LIST OF ENDPOINTS TO TRY (If one fails, we try the next)
+# We prioritize Flash (Fast/High Quota), then fallback to Pro (Stable).
+ENDPOINTS = [
+    f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={API_KEY}",
+    f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key={API_KEY}",
+    f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.0-pro:generateContent?key={API_KEY}"
+]
 
 app = FastAPI()
 
@@ -25,74 +29,66 @@ app.add_middleware(
 class CheckRequest(BaseModel):
     text: str
 
+def query_google(endpoint, payload):
+    """Helper function to send request to a specific URL"""
+    try:
+        response = requests.post(endpoint, json=payload, headers={"Content-Type": "application/json"})
+        return response.json()
+    except:
+        return {"error": "Connection Failed"}
+
 @app.post("/check")
 async def check_trust(request: CheckRequest):
     print(f"\n--- ANALYZING: {request.text[:30]}... ---")
     
-    # YOUR STRICT JSON PROMPT
     system_prompt = """
-    You are a fact-checking and credibility analysis system.
-
-    Analyze the following text and evaluate how trustworthy it is.
-
-    Criteria:
-    - Factual accuracy
-    - Logical consistency
-    - Emotional manipulation or bias
-    - Misinformation or exaggeration
-    - Source reliability (if implied)
-
-    Return ONLY a valid JSON object in this exact format:
-    {
-      "trust_score": number, 
-      "reason": "short explanation"
-    }
-
-    Be strict. Assume the text is untrusted unless strong evidence supports it.
+    You are a fact-checking system. Analyze the text.
+    Return ONLY valid JSON:
+    { "trust_score": number, "reason": "short string" }
     """
 
-    # Prepare payload for Gemini
     payload = {
-        "contents": [{
-            "parts": [{
-                "text": f"{system_prompt}\n\nText to analyze:\n\"\"\"{request.text}\"\"\""
-            }]
-        }]
+        "contents": [{"parts": [{"text": f"{system_prompt}\n\nText:\n{request.text}"}]}]
     }
 
-    try:
-        # Send Request to v1 Endpoint
-        response = requests.post(URL, json=payload, headers={"Content-Type": "application/json"})
-        data = response.json()
-
-        # 1. Check for API Errors
+    # --- THE MAGIC LOOP ---
+    # We try each URL until one works.
+    final_data = None
+    
+    for url in ENDPOINTS:
+        print(f"Trying model: {url.split('models/')[1].split(':')[0]} ...")
+        data = query_google(url, payload)
+        
+        # If we see an error, print it and try the NEXT model
         if "error" in data:
-            print(f"GOOGLE ERROR: {data['error']}")
-            return {"score": 0, "color": "Red", "reason": f"API Error: {data['error'].get('message', 'Unknown')}"}
+            print(f"FAILED: {data['error'].get('message', 'Unknown Error')}")
+            continue # Try next URL
+        
+        # If success, save data and break the loop!
+        final_data = data
+        print("SUCCESS! Model found.")
+        break
+    
+    # If all 3 failed:
+    if not final_data or "error" in final_data:
+        return {"score": 0, "color": "Red", "reason": "All AI models failed. Check API Key."}
 
-        # 2. Extract Text
-        ai_text = data["candidates"][0]["content"]["parts"][0]["text"]
-        
-        # 3. Clean JSON (Remove ```json ... ``` wrappers if present)
+    # --- PARSE RESULT ---
+    try:
+        ai_text = final_data["candidates"][0]["content"]["parts"][0]["text"]
         ai_text = ai_text.replace("```json", "").replace("```", "").strip()
-        
-        # 4. Parse JSON
         result = json.loads(ai_text)
         
-        # 5. Determine Color based on Score
         score = result.get("trust_score", 0)
         color = "Red"
-        if score >= 80:
-            color = "Green"
-        elif score >= 50:
-            color = "Yellow"
+        if score >= 80: color = "Green"
+        elif score >= 50: color = "Yellow"
 
         return {
             "score": score,
             "color": color,
-            "reason": result.get("reason", "No reason provided.")
+            "reason": result.get("reason", "Analysis complete.")
         }
-
     except Exception as e:
-        print(f"CRITICAL ERROR: {e}")
-        return {"score": 0, "color": "Red", "reason": "Error parsing AI response."}
+        print(f"PARSING ERROR: {e}")
+        return {"score": 0, "color": "Red", "reason": "Error reading AI response."}
