@@ -3,14 +3,11 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import requests
 import os
+import json
 
-# --- SETUP ---
-# We use the raw API URL for Gemini 1.5 Flash (The high-quota model)
+# --- CONFIG ---
 API_KEY = os.environ.get("GEMINI_API_KEY")
-if not API_KEY:
-    print("CRITICAL: API Key is missing.")
-
-# DIRECT URL - No library confusion
+# Direct URL to Google (Bypasses the buggy Python library)
 URL = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={API_KEY}"
 
 app = FastAPI()
@@ -30,52 +27,62 @@ class CheckRequest(BaseModel):
 async def check_trust(request: CheckRequest):
     print(f"\n--- ANALYZING: {request.text[:30]}... ---")
     
-    # 1. Prepare the payload (The message to Google)
+    # --- YOUR NEW PROMPT ---
+    system_prompt = f"""
+    You are an impartial, analytical AI system.
+    Your task is to evaluate the trustworthiness of the given content.
+    Respond strictly in JSON format only.
+
+    Analyze the following content:
+    \"\"\"
+    {request.text}
+    \"\"\"
+
+    Instructions:
+    1. Detect factual accuracy, logical consistency, and emotional manipulation.
+    2. Output JSON format:
+    {{
+      "trust_score": number (0-100),
+      "recommendation": "trust" | "verify" | "avoid",
+      "summary": "Short explanation (max 1 sentence)"
+    }}
+    """
+
     payload = {
-        "contents": [{
-            "parts": [{
-                "text": f"""
-                Analyze this text for misinformation: "{request.text}"
-                
-                Return the response in this EXACT format (no markdown):
-                Score: [0-100]
-                Color: [Red/Yellow/Green]
-                Reason: [Short explanation]
-                """
-            }]
-        }]
+        "contents": [{"parts": [{"text": system_prompt}]}]
     }
 
-    # 2. Send via Direct "Requests" (Bypassing the Google Library)
     try:
+        # Direct Request (No Library)
         response = requests.post(URL, json=payload, headers={"Content-Type": "application/json"})
         data = response.json()
-        
-        # Check for errors in the raw response
+
+        # Error Handling
         if "error" in data:
             print(f"GOOGLE ERROR: {data['error']}")
-            return {"score": 0, "color": "Red", "reason": f"API Error: {data['error'].get('message', 'Unknown')}"}
+            return {"score": 0, "color": "Red", "reason": "API Error. Please try again."}
 
-        # 3. Parse the success message
+        # Parse AI Response
         ai_text = data["candidates"][0]["content"]["parts"][0]["text"]
-        print(f"AI Said: {ai_text}")
+        
+        # Clean up JSON (sometimes AI adds ```json marks)
+        ai_text = ai_text.replace("```json", "").replace("```", "").strip()
+        result = json.loads(ai_text)
 
-        lines = ai_text.split('\n')
-        score = 0
-        color = "Red"
-        reason = "Could not parse"
-
-        for line in lines:
-            if "Score:" in line:
-                score_str = line.split(':')[1].strip()
-                score = int(''.join(filter(str.isdigit, score_str)))
-            if "Color:" in line:
-                color = line.split(':')[1].strip()
-            if "Reason:" in line:
-                reason = line.split(':')[1].strip()
-
-        return {"score": score, "color": color, "reason": reason}
+        # Map your JSON to the Frontend (Popup) format
+        # Your prompt returns "recommendation", we convert it to "Color"
+        color_map = {
+            "trust": "Green",
+            "verify": "Yellow",
+            "avoid": "Red"
+        }
+        
+        return {
+            "score": result.get("trust_score", 0),
+            "color": color_map.get(result.get("recommendation", "verify"), "Yellow"),
+            "reason": result.get("summary", "Analysis complete.")
+        }
 
     except Exception as e:
         print(f"CRITICAL ERROR: {e}")
-        return {"score": 0, "color": "Red", "reason": "Connection failed."}
+        return {"score": 0, "color": "Red", "reason": "Connection Error."}
