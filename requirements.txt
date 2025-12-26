@@ -1,5 +1,6 @@
 fastapi
 uvicorn
 groq
-pydantic
 python-multipart
+pydantic
+tavily-python
