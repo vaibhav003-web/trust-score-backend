@@ -1,19 +1,14 @@
 from fastapi import FastAPI, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
-import os
-import json
-import base64
-import re
+import os, json, base64
 from datetime import datetime
 from groq import Groq
 
-# --- CONFIGURATION ---
-api_key = os.environ.get("GROQ_API_KEY")
-client = Groq(api_key=api_key)
+# ---------------- CONFIG ----------------
+client = Groq(api_key=os.environ.get("GROQ_API_KEY"))
 
 app = FastAPI()
-
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -23,168 +18,130 @@ app.add_middleware(
 )
 
 @app.get("/")
-async def read_root():
+async def root():
     return FileResponse("index.html")
 
-def encode_image(image_file):
-    return base64.b64encode(image_file).decode('utf-8')
+def encode_image(img):
+    return base64.b64encode(img).decode("utf-8")
 
-# --- HEURISTIC ENGINE (Rule-Based Checks) ---
-def run_safety_checks(text: str, current_flags: list, verdict: str) -> list:
-    text_lower = text.lower()
-    new_flags = []
+# -------- DEFAULT SAFE RESPONSE ----------
+def safe_response():
+    return {
+        "claim_type": "Unknown",
+        "verdict": "Unverified",
+        "trust_score": 50,
+        "confidence_band": "Medium",
+        "risk_level": "Medium",
+        "explanation": "No reliable confirmation available.",
+        "bias_rating": "Neutral",
+        "flags": [],
+        "estimated_sources": []
+    }
 
-    # 1. Virality / Forwarded Detection
-    viral_keywords = ["forward", "share fast", "share this", "breaking news", "viral", "maximum share"]
-    if any(k in text_lower for k in viral_keywords):
-        new_flags.append("Likely viral or forwarded content")
-    
-    # Check for ALL CAPS (if text is long enough)
-    if len(text) > 20 and sum(1 for c in text if c.isupper()) / len(text) > 0.6:
-        new_flags.append("Excessive capitalization (Viral Pattern)")
-
-    # 2. Overconfidence Detection
-    absolute_words = ["guaranteed", "100%", "confirmed", "official proof", "proven"]
-    if verdict == "Unverified" and any(w in text_lower for w in absolute_words):
-        new_flags.append("Overconfident language without verification")
-
-    # 3. Time-Sensitive Detection
-    time_words = ["today", "tomorrow", "tonight", "yesterday", "this week"]
-    if verdict == "Unverified" and any(w in text_lower for w in time_words):
-        new_flags.append("Time-sensitive claim — accuracy decays quickly")
-
-    # 4. Multi-Claim Detection (Simple Sentence Count)
-    # Rough check: if inputs have multiple distinct sentences, risk increases.
-    sentences = [s for s in re.split(r'[.!?\n]', text) if len(s.strip()) > 10]
-    if len(sentences) > 3:
-        new_flags.append("Multiple claims detected — analysis may be incomplete")
-
-    return list(set(current_flags + new_flags))
-
+# ----------------------------------------
 @app.post("/check")
 async def check_trust(text: str = Form(...), image: UploadFile = File(None)):
-    print(f"Request: {len(text)} chars | Image: {image.filename if image else 'None'}")
+
+    base = safe_response()
+    today = datetime.now().strftime("%d %B %Y")
+
+    system_prompt = f"""
+You are an OFFLINE credibility assessment engine.
+You do NOT browse the internet.
+
+TASK:
+Classify and assess credibility.
+
+Rules:
+- Opinion → Unverified (NOT Fake)
+- Rumor / Prediction → Unverified
+- Breaking-News → Unverified
+- VERIFIED requires strong historical certainty
+- If unsure → Unverified
+
+Return STRICT JSON with ALL fields filled.
+
+JSON FORMAT:
+{{
+ "claim_type": "",
+ "verdict": "",
+ "trust_score": 0,
+ "risk_level": "",
+ "explanation": "",
+ "bias_rating": "",
+ "flags": [],
+ "estimated_sources": []
+}}
+"""
+
+    # ---- 1. HANDLE IMAGE VS TEXT PROMPT ----
+    messages = []
+    
+    if image:
+        # If image exists, use Llama 3.2 Vision
+        model = "llama-3.2-11b-vision-preview"
+        contents = await image.read()
+        base64_image = encode_image(contents)
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": [
+                {"type": "text", "text": f"Analyze this image and text: {text}"},
+                {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}}
+            ]}
+        ]
+    else:
+        # Text only
+        model = "llama-3.1-8b-instant"
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": text}
+        ]
 
     try:
-        current_date = datetime.now().strftime("%A, %d %B %Y")
-        
-        # --- SYSTEM PROMPT ---
-        system_text = f"""
-        You are a Credibility Assessment Tool (Offline Mode). 
-        Current Date: {current_date}.
-        
-        GOAL: Estimate credibility based on INTERNAL KNOWLEDGE only. Do not hallucinate external search results.
-
-        ### CLASSIFICATION
-        - 'Fact', 'Rumor', 'Opinion', 'Satire', 'Breaking-News'.
-
-        ### VERDICT RULES
-        1. 'History Match': Confirmed by your internal training data (e.g., established science/history).
-        2. 'No Match': Not found in training data (Rumors, Recent events). DEFAULT.
-        3. 'False': Contradicts internal training data.
-
-        ### SCORING
-        - Established Fact: 90-100
-        - Unverified / No Match: 40-50
-        - Proven False: 0-20
-
-        ### OUTPUT JSON:
-        {{
-          "claim_type": "string",
-          "trust_score": (int 0-100),
-          "verdict": "History Match | No Match | False | Misleading",
-          "explanation": "Brief logic. If 'No Match', admit you cannot verify recent events.",
-          "bias_rating": "Neutral | Left | Right | Propaganda",
-          "flags": ["list", "of", "content", "risks"],
-          "estimated_sources": ["Source 1"] (Only if 'History Match')
-        }}
-        """
-
-        messages = []
-        model = "llama-3.1-8b-instant" 
-
-        if image:
-            model = "llama-3.2-11b-vision-preview" 
-            contents = await image.read()
-            base64_image = encode_image(contents)
-            messages = [
-                {"role": "system", "content": system_text},
-                {"role": "user", "content": [
-                    {"type": "text", "text": f"Assess: {text}"},
-                    {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}}
-                ]}
-            ]
-        else:
-            messages = [
-                {"role": "system", "content": system_text},
-                {"role": "user", "content": text}
-            ]
-
         completion = client.chat.completions.create(
-            messages=messages,
             model=model,
+            messages=messages,
             temperature=0.0,
             response_format={"type": "json_object"}
         )
 
-        result = json.loads(completion.choices[0].message.content)
+        ai = json.loads(completion.choices[0].message.content)
 
-        # --- PYTHON LOGIC ENFORCEMENT ---
-        
-        # 1. Extract & Sanitize
-        score = result.get("trust_score", 50)
-        verdict = result.get("verdict", "No Match")
-        explanation = result.get("explanation", "")
-        flags = result.get("flags", [])
+        # ---- SAFE MERGE ----
+        # Start with base defaults, overwrite with AI data only if valid
+        result = base.copy()
+        result.update({k: ai.get(k, base[k]) for k in base})
 
-        # 2. Run Heuristics (Viral, Time, etc.)
-        flags = run_safety_checks(text, flags, verdict)
+        # ---- SCORE SAFETY ----
+        if not result["estimated_sources"]:
+            result["trust_score"] = min(result["trust_score"], 50)
+            if result["verdict"] == "Verified":
+                result["verdict"] = "Unverified"
+                result["explanation"] += " (Downgraded: No sources found in memory.)"
 
-        # 3. Fail-Safe: Explanation too short?
-        if len(explanation.split()) < 5:
-            verdict = "No Match"
-            score = 50
-            explanation = "Analysis inconclusive due to insufficient data."
-            flags.append("Automated Fail-Safe Triggered")
+        # ---- OPINION RULE ----
+        if result["claim_type"] == "Opinion":
+            result["verdict"] = "Unverified"
+            result["trust_score"] = 50
+            result["risk_level"] = "Medium"
 
-        # 4. Calculate Confidence Band
-        confidence_band = "Medium"
-        if score <= 30: confidence_band = "Low"
-        elif score >= 61: confidence_band = "High"
+        # ---- CONFIDENCE BAND ----
+        s = result["trust_score"]
+        if s <= 30:
+            result["confidence_band"] = "Low"
+        elif s <= 60:
+            result["confidence_band"] = "Medium"
+        else:
+            result["confidence_band"] = "High"
 
-        # 5. Offline Mode Enforcer
-        verification_mode = "Offline"
-        
-        # 6. Breaking News / Rumor Safety Cap
-        if result.get("claim_type") in ["Breaking-News", "Rumor"] and verdict == "History Match":
-             # If AI claims to know breaking news (hallucination risk), downgrade it
-             if not result.get("estimated_sources"):
-                 verdict = "No Match"
-                 score = 45
-                 explanation += " (Downgraded: Recent events cannot be verified offline.)"
+        # ---- FINAL GUARANTEE ----
+        # Ensure no None values exist
+        for key in base:
+            if result.get(key) is None:
+                result[key] = base[key]
 
-        # 7. Final JSON Assembly
-        final_response = {
-            "claim_type": result.get("claim_type", "Unknown"),
-            "trust_score": score,
-            "confidence_band": confidence_band,
-            "verdict": verdict,
-            "verification_mode": verification_mode,
-            "explanation": explanation,
-            "bias_rating": result.get("bias_rating", "Neutral"),
-            "flags": flags,
-            "estimated_sources": result.get("estimated_sources", [])
-        }
-        
-        return final_response
+        return result
 
     except Exception as e:
         print(f"Error: {e}")
-        return {
-            "trust_score": 50,
-            "confidence_band": "Low",
-            "verdict": "System Error",
-            "explanation": "Please try again later.",
-            "flags": ["Server Error"],
-            "estimated_sources": []
-        }
+        return safe_response()
