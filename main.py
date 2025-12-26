@@ -31,7 +31,7 @@ def run_heuristics(text, current_flags):
         flags.append("Likely viral/forwarded content")
     
     # 2. Time Sensitive
-    if any(x in text_lower for x in ["today", "tomorrow", "breaking", "tonight"]):
+    if any(x in text_lower for x in ["breaking", "developing story"]):
         flags.append("Time-sensitive (accuracy decays quickly)")
         
     # 3. Overconfidence
@@ -39,6 +39,22 @@ def run_heuristics(text, current_flags):
         flags.append("Manipulative/High-confidence language detected")
 
     return list(set(flags))
+
+# -------- SPECIAL DATE CHECKER (Python Logic) ----------
+def check_date_claim(text):
+    text_lower = text.lower()
+    today = datetime.now()
+    current_day = today.strftime("%A").lower() # e.g. "friday"
+    
+    # Check if user says "Today is [Day]"
+    days = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
+    for day in days:
+        if f"today is {day}" in text_lower:
+            if day == current_day:
+                return True, "Verified", "System Calendar"
+            else:
+                return True, "False", "System Calendar"
+    return False, None, None
 
 # -------- DEFAULT SAFE RESPONSE ----------
 def safe_response():
@@ -59,19 +75,32 @@ async def check_trust(text: str = Form(...)):
     
     base = safe_response()
     
-    # --- STRICT PROMPT ---
+    # 1. RUN SPECIAL DATE CHECK FIRST
+    is_date_claim, date_verdict, date_source = check_date_claim(text)
+    if is_date_claim:
+        return JSONResponse({
+            "claim_type": "Fact",
+            "verdict": date_verdict,
+            "trust_score": 100 if date_verdict == "Verified" else 0,
+            "risk_level": "Low",
+            "confidence_band": "High",
+            "explanation": f"Validated against system date: {datetime.now().strftime('%A, %d %B %Y')}.",
+            "bias_rating": "Neutral",
+            "flags": [],
+            "estimated_sources": [date_source]
+        })
+
+    # --- STRICT PROMPT (Tweaked for Myths & History) ---
     system_prompt = f"""
     You are an OFFLINE credibility assessment AI.
-    Current Date: {datetime.now().strftime("%d %B %Y")}
-    
-    TASK: Analyze the text for logical consistency, historical fact, and manipulation.
+    Current Date: {datetime.now().strftime("%A, %d %B %Y")}
     
     RULES:
-    1. Opinion/Rant → Verdict: Unverified (Score 50). Do not call it Fake.
-    2. Rumor/Prediction → Verdict: Unverified.
-    3. Breaking News (<24h) → Verdict: Unverified (Admit you have no live search).
-    4. VERIFIED requires established historical certainty (e.g. Science, Geography, History).
-    5. FALSE requires definitive proof in your training data.
+    1. HISTORICAL FACTS (e.g., "TikTok banned in India", "Earth is round") → Verdict: Verified. Source: "Official Records" or "General Knowledge".
+    2. COMMON MYTHS (e.g., "Hot water kills COVID") → Verdict: False. Source: "Scientific Consensus".
+    3. Opinion/Rant → Verdict: Unverified (Score 50).
+    4. Rumor/Prediction → Verdict: Unverified.
+    5. Breaking News (<24h) → Verdict: Unverified.
     
     OUTPUT JSON:
     {{
@@ -80,14 +109,13 @@ async def check_trust(text: str = Form(...)):
      "trust_score": (0-100),
      "risk_level": "Low|Medium|High",
      "explanation": "Clear, logic-based reasoning.",
-     "bias_rating": "Neutral|Left|Right|Propaganda",
-     "flags": ["list", "any", "manipulation"],
-     "estimated_sources": ["Source1"] (Only if historically certain)
+     "bias_rating": "Neutral|Left|Right",
+     "flags": ["list", "flags"],
+     "estimated_sources": ["Source1"] 
     }}
     """
 
     try:
-        # Text Only Model
         model = "llama-3.1-8b-instant"
         messages = [
             {"role": "system", "content": system_prompt},
@@ -109,32 +137,31 @@ async def check_trust(text: str = Form(...)):
 
         # ---------- LOGIC ENFORCEMENT ----------
 
-        # 1. Run Python Heuristics
+        # 1. Run Heuristics
         result["flags"] = run_heuristics(text, result["flags"])
 
-        # 2. Opinion Safety Rule
-        if result["claim_type"] == "Opinion":
-            result["verdict"] = "Unverified"
-            result["trust_score"] = 50
-            result["risk_level"] = "Medium"
-
-        # 3. Breaking News / Rumor Safety Rule
+        # 2. Breaking News / Rumor Safety Rule
+        # We relax this slightly: If AI is VERY confident (Verified) and has a source, we let it pass.
+        # We only downgrade if it marks a Rumor as Verified WITHOUT a source.
         if result["claim_type"] in ["Rumor", "Prediction", "Breaking-News"]:
             if result["verdict"] == "Verified" and not result["estimated_sources"]:
                 result["verdict"] = "Unverified"
                 result["trust_score"] = 45
-                result["explanation"] += " (Downgraded: Breaking news requires live verification.)"
+                result["explanation"] += " (Downgraded: Claims require sources.)"
 
-        # 4. Source Enforcement
-        if not result["estimated_sources"]:
-            result["trust_score"] = min(result["trust_score"], 50)
-            if result["verdict"] == "Verified":
-                result["verdict"] = "Unverified"
-                result["explanation"] += " (Downgraded: No verifiable sources in memory.)"
+        # 3. Source Enforcement (Relaxed for False Claims)
+        # If something is FALSE (like a myth), we don't strictly require a specific source citation if the AI explains it well.
+        # But for VERIFIED facts, we still want a source.
+        if result["verdict"] == "Verified" and not result["estimated_sources"]:
+             # Last chance: check if it's a known historical fact? 
+             # If not, downgrade.
+             result["verdict"] = "Unverified"
+             result["trust_score"] = 50
+             result["explanation"] += " (Downgraded: No source found in offline memory.)"
 
-        # 5. Calculate Confidence Band
+        # 4. Calculate Confidence Band
         s = result["trust_score"]
-        result["confidence_band"] = "High" if s > 65 else ("Low" if s <= 35 else "Medium")
+        result["confidence_band"] = "High" if s > 65 or s < 20 else ("Low" if s <= 35 else "Medium")
 
         return JSONResponse(result)
 
