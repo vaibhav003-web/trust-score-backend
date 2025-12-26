@@ -156,22 +156,15 @@ async def check_trust(text: str = Form(...)):
 
         result["flags"] = run_heuristics(text, result["flags"])
 
-        # --- SCORE SYNC (THE FIX) ---
-        # Force score to match verdict logic
+        # --- SCORE SYNC ---
         verdict = result["verdict"]
-        
         if verdict == "False":
-            # If false, score MUST be low (0-20)
             result["trust_score"] = min(result["trust_score"], 20)
             result["risk_level"] = "High"
-            
         elif verdict == "Verified":
-            # If verified, score MUST be high (80-100)
             result["trust_score"] = max(result["trust_score"], 80)
             result["risk_level"] = "Low"
-            
         elif verdict == "Unverified":
-            # If unverified, keep it neutral (40-60)
             result["trust_score"] = 50
             result["risk_level"] = "Medium"
 
