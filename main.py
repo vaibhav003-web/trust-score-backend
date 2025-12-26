@@ -29,31 +29,37 @@ async def read_root():
 def encode_image(image_file):
     return base64.b64encode(image_file).decode('utf-8')
 
-# --- The Analysis Endpoint (Handles Text AND Images) ---
+# --- The Analysis Endpoint ---
 @app.post("/check")
 async def check_trust(text: str = Form(...), image: UploadFile = File(None)):
-    print(f"Request Received. Text length: {len(text)}. Image: {image.filename if image else 'None'}")
+    print(f"Request Received. Text len: {len(text)}")
 
     try:
         messages = []
-        model = "llama-3.1-8b-instant" # Default to fast text model
+        model = "llama-3.1-8b-instant" 
 
-        # SYSTEM PROMPT
+        # --- SUPER STRICT SYSTEM PROMPT ---
         system_text = """
-        You are a strict fact-checker. 
-        If Image is provided: Analyze for deepfakes, AI generation errors (hands/eyes), photoshop, or context mismatch.
-        If Text is provided: Analyze for bias, logical fallacies, and propaganda.
+        You are a ruthless, cynical fact-checking AI. Your job is to protect the user from lies.
         
-        Return STRICT JSON:
+        RULES:
+        1. START WITH A SCORE OF 0. Only give points for verified facts.
+        2. IF VAGUE/UNVERIFIED: Score < 40. Flag as "Unsubstantiated".
+        3. IF OPINION/RANT: Score < 30. Flag as "Subjective Opinion".
+        4. IF TRUE: You MUST provide the likely SOURCE (e.g., 'Matches reports from BBC, Reuters'). Score it 90-100 only if it is a well-known, established fact.
+        5. NEVER give 100 unless it is a universal scientific truth (like 'Water is H2O').
+        
+        Return STRICT JSON format:
         {
           "trust_score": (int 0-100),
-          "reason": (string max 20 words),
-          "bias_rating": (string),
-          "flags": (list of strings)
+          "reason": (string, max 15 words, very direct),
+          "bias_rating": (string: 'Neutral', 'Left-Wing', 'Right-Wing', 'Propaganda'),
+          "flags": (list of strings, e.g. ['No Sources', 'Emotional Language', 'Clickbait']),
+          "sources": (list of strings, e.g. ['Reuters', 'Official Govt Data'] or ['None Found'])
         }
         """
         
-        # 1. IF IMAGE IS PRESENT -> USE VISION MODEL
+        # 1. IMAGE HANDLING
         if image:
             model = "llama-3.2-11b-vision-preview" 
             contents = await image.read()
@@ -64,18 +70,13 @@ async def check_trust(text: str = Form(...), image: UploadFile = File(None)):
                 {
                     "role": "user",
                     "content": [
-                        {"type": "text", "text": f"Check this content: {text}"},
-                        {
-                            "type": "image_url",
-                            "image_url": {
-                                "url": f"data:image/jpeg;base64,{base64_image}"
-                            }
-                        }
+                        {"type": "text", "text": f"Strictly audit this image and text: {text}"},
+                        {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}}
                     ]
                 }
             ]
         
-        # 2. IF TEXT ONLY -> USE TEXT MODEL
+        # 2. TEXT HANDLING
         else:
             messages = [
                 {"role": "system", "content": system_text},
@@ -86,7 +87,7 @@ async def check_trust(text: str = Form(...), image: UploadFile = File(None)):
         completion = client.chat.completions.create(
             messages=messages,
             model=model,
-            temperature=0,
+            temperature=0.0, # Zero creativity = Maximum strictness
             response_format={"type": "json_object"}
         )
 
@@ -96,9 +97,10 @@ async def check_trust(text: str = Form(...), image: UploadFile = File(None)):
             "score": result.get("trust_score", 0),
             "reason": result.get("reason"),
             "bias": result.get("bias_rating"),
-            "flags": result.get("flags", [])
+            "flags": result.get("flags", []),
+            "sources": result.get("sources", ["None"]) # New Field
         }
 
     except Exception as e:
         print(f"Error: {e}")
-        return {"score": 0, "reason": "Server Error or Invalid Input", "bias": "Error", "flags": ["Try again"]}
+        return {"score": 0, "reason": "Server Error", "bias": "Error", "flags": ["Try again"], "sources": []}
