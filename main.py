@@ -4,6 +4,7 @@ from fastapi.responses import FileResponse
 import os
 import json
 import base64
+from datetime import datetime # <--- NEW: Import Clock
 from groq import Groq
 
 # 1. Setup
@@ -35,28 +36,34 @@ async def check_trust(text: str = Form(...), image: UploadFile = File(None)):
     print(f"Request Received. Text len: {len(text)}")
 
     try:
+        # --- NEW: GET CURRENT DATE ---
+        current_date = datetime.now().strftime("%A, %d %B %Y") # e.g., "Thursday, 26 December 2025"
+        
         messages = []
         model = "llama-3.1-8b-instant" 
 
-        # --- SUPER STRICT SYSTEM PROMPT ---
-        system_text = """
-        You are a ruthless, cynical fact-checking AI. Your job is to protect the user from lies.
-        
+        # --- SYSTEM PROMPT WITH DATE AWARENESS ---
+        system_text = f"""
+        You are a ruthless, cynical fact-checking AI. 
+        CONTEXT: Today's date is {current_date}. 
+        Use this date to verify time-sensitive claims (e.g., "Today is Monday").
+
         RULES:
         1. START WITH A SCORE OF 0. Only give points for verified facts.
-        2. IF VAGUE/UNVERIFIED: Score < 40. Flag as "Unsubstantiated".
-        3. IF OPINION/RANT: Score < 30. Flag as "Subjective Opinion".
-        4. IF TRUE: You MUST provide the likely SOURCE (e.g., 'Matches reports from BBC, Reuters'). Score it 90-100 only if it is a well-known, established fact.
-        5. NEVER give 100 unless it is a universal scientific truth (like 'Water is H2O').
+        2. IF CLAIM CONTRADICTS DATE: Score 0. Flag as "False Information".
+        3. IF VAGUE/UNVERIFIED: Score < 40. Flag as "Unsubstantiated".
+        4. IF OPINION/RANT: Score < 30. Flag as "Subjective Opinion".
+        5. IF TRUE: You MUST provide the likely SOURCE (e.g., 'Matches reports from BBC, Reuters').
+        6. NEVER give 100 unless it is a universal scientific truth (like 'Water is H2O').
         
         Return STRICT JSON format:
-        {
+        {{
           "trust_score": (int 0-100),
           "reason": (string, max 15 words, very direct),
           "bias_rating": (string: 'Neutral', 'Left-Wing', 'Right-Wing', 'Propaganda'),
-          "flags": (list of strings, e.g. ['No Sources', 'Emotional Language', 'Clickbait']),
-          "sources": (list of strings, e.g. ['Reuters', 'Official Govt Data'] or ['None Found'])
-        }
+          "flags": (list of strings),
+          "sources": (list of strings)
+        }}
         """
         
         # 1. IMAGE HANDLING
@@ -87,7 +94,7 @@ async def check_trust(text: str = Form(...), image: UploadFile = File(None)):
         completion = client.chat.completions.create(
             messages=messages,
             model=model,
-            temperature=0.0, # Zero creativity = Maximum strictness
+            temperature=0.0,
             response_format={"type": "json_object"}
         )
 
@@ -98,7 +105,7 @@ async def check_trust(text: str = Form(...), image: UploadFile = File(None)):
             "reason": result.get("reason"),
             "bias": result.get("bias_rating"),
             "flags": result.get("flags", []),
-            "sources": result.get("sources", ["None"]) # New Field
+            "sources": result.get("sources", ["None"])
         }
 
     except Exception as e:
