@@ -256,13 +256,14 @@
 
             const verdictIcon = currentResult.verdict === "Verified" ? "✅" : currentResult.verdict === "False" ? "❌" : "⚠️";
 
+            // UPDATED: Now uses bit.ly link
             const shareText = `*VerifAI Security Report* 🛡️\n\n` +
                 `📝 *Claim:* "${currentInput}"\n` +
                 `${verdictIcon} *Verdict:* ${currentResult.verdict.toUpperCase()}\n` +
                 `📊 *Score:* ${currentResult.trust_score}/100\n` +
                 `🚨 *Risk:* ${currentResult.risk_level}\n\n` +
                 `*Verify your messages here:* 👇\n` +
-                `https://trust-score.onrender.com`;
+                `bit.ly/ask-verifai`;
 
             if (navigator.share) {
                 navigator.share({ title: 'VerifAI Report', text: shareText }).catch(console.error);
@@ -274,7 +275,8 @@
         function copyReport() {
              if (!currentResult.verdict) return;
              const verdictIcon = currentResult.verdict === "Verified" ? "✅" : currentResult.verdict === "False" ? "❌" : "⚠️";
-             const shareText = `*VerifAI Security Report* 🛡️\n\n📝 *Claim:* "${currentInput}"\n${verdictIcon} *Verdict:* ${currentResult.verdict.toUpperCase()}\n📊 *Score:* ${currentResult.trust_score}/100\n🚨 *Risk:* ${currentResult.risk_level}\n\n*Verify here:* https://trust-score.onrender.com`;
+             // UPDATED: Now uses bit.ly link
+             const shareText = `*VerifAI Security Report* 🛡️\n\n📝 *Claim:* "${currentInput}"\n${verdictIcon} *Verdict:* ${currentResult.verdict.toUpperCase()}\n📊 *Score:* ${currentResult.trust_score}/100\n🚨 *Risk:* ${currentResult.risk_level}\n\n*Verify here:* bit.ly/ask-verifai`;
              
              navigator.clipboard.writeText(shareText).then(() => alert("Report copied!"));
         }
