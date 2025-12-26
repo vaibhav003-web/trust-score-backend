@@ -1,134 +1,102 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Trust Score AI - SaaS</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
-</head>
-<body class="bg-gray-50 text-gray-800 font-sans">
+from fastapi import FastAPI, UploadFile, File, Form
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
+import os
+import json
+import base64
+from groq import Groq
 
-    <nav class="bg-white shadow-sm p-4">
-        <div class="max-w-4xl mx-auto flex justify-between items-center">
-            <h1 class="text-2xl font-bold text-blue-600">
-                <i class="fas fa-shield-alt"></i> Trust Score AI
-            </h1>
-            
-            <a href="https://buymeacoffee.com/trustscore" target="_blank" 
-               class="flex items-center gap-2 bg-yellow-400 hover:bg-yellow-500 text-gray-900 font-bold py-2 px-4 rounded-full transition-all shadow-sm text-sm border-2 border-yellow-500">
-                <i class="fas fa-coffee"></i> <span>Buy me a coffee</span>
-            </a>
-        </div>
-    </nav>
+api_key = os.environ.get("GROQ_API_KEY")
+client = Groq(api_key=api_key)
 
-    <div class="max-w-3xl mx-auto mt-12 p-6">
+app = FastAPI()
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+@app.get("/")
+async def read_root():
+    return FileResponse("index.html")
+
+# Function to encode image to Base64
+def encode_image(image_file):
+    return base64.b64encode(image_file).decode('utf-8')
+
+@app.post("/check")
+async def check_trust(text: str = Form(...), image: UploadFile = File(None)):
+    print(f"Analyzing Request... Text: {len(text)} chars. Image: {image.filename if image else 'None'}")
+
+    try:
+        messages = []
+        model = "llama-3.1-8b-instant" # Default to text model
+
+        # SYSTEM PROMPT
+        system_text = """
+        You are a strict fact-checker. 
+        If Image is provided: Analyze for deepfakes, AI generation, photoshop errors, or mismatch with text.
+        If Text is provided: Analyze for bias, logical fallacies, and lack of evidence.
         
-        <div class="text-center mb-10">
-            <h2 class="text-4xl font-extrabold text-gray-900 mb-3">Is that news real?</h2>
-            <p class="text-lg text-gray-600">Paste any article, tweet, or WhatsApp forward below. Our AI detects bias, fake news, and propaganda instantly.</p>
-        </div>
-
-        <div class="bg-white rounded-xl shadow-lg p-6 border border-gray-100">
-            <textarea id="inputText" class="w-full h-40 p-4 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none text-lg" placeholder="Paste text here to analyze..."></textarea>
-            
-            <div class="flex justify-between items-center mt-4">
-                <span class="text-sm text-gray-400"><i class="fas fa-lock"></i> Analysis is private</span>
-                <button onclick="analyze()" id="analyzeBtn" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-8 rounded-lg transition-all transform active:scale-95 shadow-md">
-                    Analyze Text
-                </button>
-            </div>
-        </div>
-
-        <div id="loader" class="hidden text-center mt-8">
-            <div class="inline-block animate-spin rounded-full h-10 w-10 border-b-2 border-blue-600"></div>
-            <p class="text-gray-500 mt-2">AI is reading...</p>
-        </div>
-
-        <div id="results" class="hidden mt-8 bg-white rounded-xl shadow-lg border border-gray-100 overflow-hidden">
-            <div id="headerColor" class="p-6 text-white text-center">
-                <div class="text-6xl font-bold mb-2" id="scoreDisplay">--</div>
-                <div class="text-xl uppercase tracking-wide font-semibold" id="statusDisplay">--</div>
-            </div>
-
-            <div class="p-6 grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div class="col-span-1 md:col-span-2">
-                    <h3 class="font-bold text-gray-700 mb-2">💡 AI Analysis</h3>
-                    <p id="reasonDisplay" class="text-gray-600 bg-gray-50 p-3 rounded-lg border"></p>
-                </div>
-                
-                <div>
-                    <h3 class="font-bold text-gray-700 mb-2">⚖️ Bias Rating</h3>
-                    <p id="biasDisplay" class="text-lg font-medium text-gray-800">--</p>
-                </div>
-
-                <div>
-                    <h3 class="font-bold text-gray-700 mb-2">🚩 Risk Flags</h3>
-                    <ul id="flagsList" class="list-disc pl-5 text-red-500 text-sm space-y-1"></ul>
-                </div>
-            </div>
-        </div>
-
-    </div>
-
-    <script>
-        async function analyze() {
-            const text = document.getElementById("inputText").value;
-            if (!text) return alert("Please enter some text!");
-
-            // UI Updates
-            const btn = document.getElementById("analyzeBtn");
-            const loader = document.getElementById("loader");
-            const results = document.getElementById("results");
-            
-            btn.disabled = true;
-            btn.innerText = "Analyzing...";
-            loader.classList.remove("hidden");
-            results.classList.add("hidden");
-
-            try {
-                // Call the SAME API your extension uses
-                const response = await fetch("/check", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ text: text })
-                });
-
-                const data = await response.json();
-                
-                // Update Results
-                document.getElementById("scoreDisplay").innerText = data.score;
-                document.getElementById("reasonDisplay").innerText = data.reason;
-                document.getElementById("biasDisplay").innerText = data.bias;
-                
-                // Set Colors
-                const header = document.getElementById("headerColor");
-                const status = document.getElementById("statusDisplay");
-                
-                header.className = `p-6 text-white text-center ${data.color === 'Green' ? 'bg-green-500' : data.color === 'Yellow' ? 'bg-yellow-500' : 'bg-red-500'}`;
-                
-                status.innerText = data.color === 'Green' ? "Verified Credible" : data.color === 'Yellow' ? "Caution / Unverified" : "High Risk / Fake";
-
-                // Flags
-                const list = document.getElementById("flagsList");
-                list.innerHTML = "";
-                data.flags.forEach(flag => {
-                    const li = document.createElement("li");
-                    li.innerText = flag;
-                    list.appendChild(li);
-                });
-
-                loader.classList.add("hidden");
-                results.classList.remove("hidden");
-
-            } catch (err) {
-                alert("Error connecting to server. Please try again.");
-                console.error(err);
-            } finally {
-                btn.disabled = false;
-                btn.innerText = "Analyze Text";
-            }
+        Return STRICT JSON:
+        {
+          "trust_score": (int 0-100),
+          "reason": (string max 20 words),
+          "bias_rating": (string),
+          "flags": (list of strings)
         }
-    </script>
-</body>
-</html>
+        """
+        
+        # 1. HANDLE IMAGE + TEXT
+        if image:
+            model = "llama-3.2-11b-vision-preview" # Switch to Vision Model
+            contents = await image.read()
+            base64_image = encode_image(contents)
+            
+            messages = [
+                {"role": "system", "content": system_text},
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": f"Analyze this text and image credibility: {text}"},
+                        {
+                            "type": "image_url",
+                            "image_url": {
+                                "url": f"data:image/jpeg;base64,{base64_image}"
+                            }
+                        }
+                    ]
+                }
+            ]
+        
+        # 2. HANDLE TEXT ONLY
+        else:
+            messages = [
+                {"role": "system", "content": system_text},
+                {"role": "user", "content": text}
+            ]
+
+        # CALL API
+        completion = client.chat.completions.create(
+            messages=messages,
+            model=model,
+            temperature=0,
+            response_format={"type": "json_object"}
+        )
+
+        result = json.loads(completion.choices[0].message.content)
+        
+        score = result.get("trust_score", 0)
+        return {
+            "score": score,
+            "reason": result.get("reason"),
+            "bias": result.get("bias_rating"),
+            "flags": result.get("flags", [])
+        }
+
+    except Exception as e:
+        print(f"Error: {e}")
+        return {"score": 0, "reason": "Error processing request.", "bias": "Error", "flags": ["Server Error"]}
