@@ -1,7 +1,7 @@
-from fastapi import FastAPI, UploadFile, File, Form
+from fastapi import FastAPI, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
-import os, json, base64, re
+import os, json
 from datetime import datetime
 from groq import Groq
 
@@ -21,11 +21,7 @@ app.add_middleware(
 def home():
     return FileResponse("index.html")
 
-def encode_image(img):
-    return base64.b64encode(img).decode("utf-8")
-
-# -------- HEURISTIC ENGINE (The "Safety Net") ----------
-# This runs purely on code, not AI. It catches what AI misses.
+# -------- SAFETY HEURISTICS ----------
 def run_heuristics(text, current_flags):
     flags = current_flags.copy()
     text_lower = text.lower()
@@ -34,11 +30,11 @@ def run_heuristics(text, current_flags):
     if any(x in text_lower for x in ["forwarded", "share fast", "viral", "whatsapp", "maximum share"]):
         flags.append("Likely viral/forwarded content")
     
-    # 2. Time Sensitive / Decay
+    # 2. Time Sensitive
     if any(x in text_lower for x in ["today", "tomorrow", "breaking", "tonight"]):
         flags.append("Time-sensitive (accuracy decays quickly)")
         
-    # 3. Overconfidence / Manipulation
+    # 3. Overconfidence
     if any(x in text_lower for x in ["100%", "guaranteed", "proven fact", "official proof"]):
         flags.append("Manipulative/High-confidence language detected")
 
@@ -59,17 +55,16 @@ def safe_response():
     }
 
 @app.post("/check")
-async def check_trust(text: str = Form(...), image: UploadFile = File(None)):
+async def check_trust(text: str = Form(...)):
     
     base = safe_response()
     
-    # --- STRICT PROMPT (The "Reasoning Engine") ---
-    # This prompts the AI to think like a professional analyst.
+    # --- STRICT PROMPT ---
     system_prompt = f"""
     You are an OFFLINE credibility assessment AI.
     Current Date: {datetime.now().strftime("%d %B %Y")}
     
-    TASK: Analyze the text/image for logical consistency, historical fact, and manipulation.
+    TASK: Analyze the text for logical consistency, historical fact, and manipulation.
     
     RULES:
     1. Opinion/Rant → Verdict: Unverified (Score 50). Do not call it Fake.
@@ -84,37 +79,25 @@ async def check_trust(text: str = Form(...), image: UploadFile = File(None)):
      "verdict": "Verified|Unverified|False|Misleading",
      "trust_score": (0-100),
      "risk_level": "Low|Medium|High",
-     "explanation": "Clear, logic-based reasoning. Avoid generic phrases.",
+     "explanation": "Clear, logic-based reasoning.",
      "bias_rating": "Neutral|Left|Right|Propaganda",
-     "flags": ["list", "any", "manipulation", "tactics"],
+     "flags": ["list", "any", "manipulation"],
      "estimated_sources": ["Source1"] (Only if historically certain)
     }}
     """
 
     try:
-        messages = []
-        # Handle Image (Llama 3.2 Vision) or Text (Llama 3.1)
-        if image:
-            model = "llama-3.2-11b-vision-preview"
-            img_bytes = await image.read()
-            messages = [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": [
-                    {"type": "text", "text": f"Analyze this image and text for credibility: {text}"},
-                    {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{encode_image(img_bytes)}"}}
-                ]}
-            ]
-        else:
-            model = "llama-3.1-8b-instant"
-            messages = [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": text}
-            ]
+        # Text Only Model
+        model = "llama-3.1-8b-instant"
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": text}
+        ]
 
         completion = client.chat.completions.create(
             model=model,
             messages=messages,
-            temperature=0.0, # Zero creativity = Maximum logic
+            temperature=0.0,
             response_format={"type": "json_object"}
         )
 
@@ -124,9 +107,9 @@ async def check_trust(text: str = Form(...), image: UploadFile = File(None)):
         result = base.copy()
         result.update({k: ai.get(k, base[k]) for k in base})
 
-        # ---------- LOGIC ENFORCEMENT (The "99% Reliability" Layer) ----------
+        # ---------- LOGIC ENFORCEMENT ----------
 
-        # 1. Run Python Heuristics (Viral checks)
+        # 1. Run Python Heuristics
         result["flags"] = run_heuristics(text, result["flags"])
 
         # 2. Opinion Safety Rule
@@ -136,7 +119,6 @@ async def check_trust(text: str = Form(...), image: UploadFile = File(None)):
             result["risk_level"] = "Medium"
 
         # 3. Breaking News / Rumor Safety Rule
-        # If AI guesses "Verified" on breaking news without sources, we force it down.
         if result["claim_type"] in ["Rumor", "Prediction", "Breaking-News"]:
             if result["verdict"] == "Verified" and not result["estimated_sources"]:
                 result["verdict"] = "Unverified"
@@ -144,7 +126,6 @@ async def check_trust(text: str = Form(...), image: UploadFile = File(None)):
                 result["explanation"] += " (Downgraded: Breaking news requires live verification.)"
 
         # 4. Source Enforcement
-        # If no sources exist, you cannot have a high score.
         if not result["estimated_sources"]:
             result["trust_score"] = min(result["trust_score"], 50)
             if result["verdict"] == "Verified":
