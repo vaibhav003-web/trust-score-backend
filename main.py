@@ -1,12 +1,11 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse # NEW
-from pydantic import BaseModel
+from fastapi.responses import FileResponse
 import os
 import json
+import base64
 from groq import Groq
 
-# 1. Setup
 api_key = os.environ.get("GROQ_API_KEY")
 client = Groq(api_key=api_key)
 
@@ -20,43 +19,70 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-class CheckRequest(BaseModel):
-    text: str
-
-# --- NEW: Serve the Website at the Root URL ---
 @app.get("/")
 async def read_root():
-    # When someone visits your URL, show them the website
     return FileResponse("index.html")
 
-# --- EXISTING: The API for Extension AND Website ---
+# Function to encode image to Base64
+def encode_image(image_file):
+    return base64.b64encode(image_file).decode('utf-8')
+
 @app.post("/check")
-async def check_trust(request: CheckRequest):
-    print(f"Analyzing: {request.text[:30]}...")
-
-    system_prompt = """
-    You are a strict fact-checker. Analyze the text for credibility, bias, and evidence.
-    SCORING RULES:
-    - If "No Evidence", "Rumors", "Conspiracy" -> Score < 40.
-    - If "Highly Biased" -> Score < 60.
-    - Only give 80+ for cited, neutral facts.
-
-    Return STRICT JSON:
-    {
-      "trust_score": (int 0-100),
-      "reason": (string max 15 words),
-      "bias_rating": (string),
-      "flags": (list of strings)
-    }
-    """
+async def check_trust(text: str = Form(...), image: UploadFile = File(None)):
+    print(f"Analyzing Request... Text: {len(text)} chars. Image: {image.filename if image else 'None'}")
 
     try:
+        messages = []
+        model = "llama-3.1-8b-instant" # Default to text model
+
+        # SYSTEM PROMPT
+        system_text = """
+        You are a strict fact-checker. 
+        If Image is provided: Analyze for deepfakes, AI generation, photoshop errors, or mismatch with text.
+        If Text is provided: Analyze for bias, logical fallacies, and lack of evidence.
+        
+        Return STRICT JSON:
+        {
+          "trust_score": (int 0-100),
+          "reason": (string max 20 words),
+          "bias_rating": (string),
+          "flags": (list of strings)
+        }
+        """
+        
+        # 1. HANDLE IMAGE + TEXT
+        if image:
+            model = "llama-3.2-11b-vision-preview" # Switch to Vision Model
+            contents = await image.read()
+            base64_image = encode_image(contents)
+            
+            messages = [
+                {"role": "system", "content": system_text},
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": f"Analyze this text and image credibility: {text}"},
+                        {
+                            "type": "image_url",
+                            "image_url": {
+                                "url": f"data:image/jpeg;base64,{base64_image}"
+                            }
+                        }
+                    ]
+                }
+            ]
+        
+        # 2. HANDLE TEXT ONLY
+        else:
+            messages = [
+                {"role": "system", "content": system_text},
+                {"role": "user", "content": text}
+            ]
+
+        # CALL API
         completion = client.chat.completions.create(
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": request.text}
-            ],
-            model="llama-3.1-8b-instant",
+            messages=messages,
+            model=model,
             temperature=0,
             response_format={"type": "json_object"}
         )
@@ -64,13 +90,8 @@ async def check_trust(request: CheckRequest):
         result = json.loads(completion.choices[0].message.content)
         
         score = result.get("trust_score", 0)
-        color = "Red"
-        if score >= 80: color = "Green"
-        elif score >= 50: color = "Yellow"
-
         return {
             "score": score,
-            "color": color,
             "reason": result.get("reason"),
             "bias": result.get("bias_rating"),
             "flags": result.get("flags", [])
@@ -78,4 +99,4 @@ async def check_trust(request: CheckRequest):
 
     except Exception as e:
         print(f"Error: {e}")
-        return {"score": 0, "color": "Red", "reason": "AI Error"}
+        return {"score": 0, "reason": "Error processing request.", "bias": "Error", "flags": ["Server Error"]}
