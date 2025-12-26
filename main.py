@@ -7,7 +7,6 @@ from groq import Groq
 from tavily import TavilyClient
 
 # ---------------- CONFIG ----------------
-# You need BOTH keys now
 groq_client = Groq(api_key=os.environ.get("GROQ_API_KEY"))
 tavily = TavilyClient(api_key=os.environ.get("TAVILY_API_KEY"))
 
@@ -24,10 +23,44 @@ app.add_middleware(
 def home():
     return FileResponse("index.html")
 
-# -------- 1. LIVE WEB SEARCH ----------
+# -------- 1. PYTHON DATE CHECKER ----------
+def check_date_claim(text):
+    text_lower = text.lower()
+    now = datetime.now()
+    today_day = now.strftime("%A").lower()
+    today_date = now.strftime("%d-%m-%Y")
+    
+    days = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
+    for day in days:
+        if f"today is {day}" in text_lower or f"day is {day}" in text_lower:
+            if day == today_day:
+                return True, "Verified", 100, f"Correct. Today is {today_day}, {today_date}."
+            else:
+                return True, "False", 0, f"Incorrect. Today is actually {today_day}, {today_date}."
+
+    if "today date is" in text_lower or "date is" in text_lower:
+        if today_date not in text: 
+            return True, "False", 0, f"Incorrect. The real system date is {today_date}."
+        else:
+             return True, "Verified", 100, f"Correct. System date is {today_date}."
+
+    return False, None, 0, None
+
+# -------- 2. VIRAL HEURISTICS ----------
+def run_heuristics(text, current_flags):
+    flags = current_flags.copy()
+    text_lower = text.lower()
+    
+    if any(x in text_lower for x in ["forwarded", "share fast", "viral", "whatsapp"]):
+        flags.append("Likely viral/forwarded content")
+    if any(x in text_lower for x in ["100%", "guaranteed", "proven fact"]):
+        flags.append("High-confidence/Manipulative language")
+        
+    return list(set(flags))
+
+# -------- 3. LIVE WEB SEARCH ----------
 def search_web(query):
     try:
-        # Search for context (limited to 3 results for speed)
         response = tavily.search(query=query, search_depth="basic", max_results=3)
         context = []
         sources = []
@@ -35,8 +68,7 @@ def search_web(query):
             context.append(f"- {result['content']}")
             sources.append(result['url'])
         return "\n".join(context), sources
-    except Exception as e:
-        print(f"Search Error: {e}")
+    except:
         return None, []
 
 # -------- DEFAULT RESPONSE ----------
@@ -47,7 +79,7 @@ def safe_response():
         "trust_score": 50,
         "confidence_band": "Medium",
         "risk_level": "Medium",
-        "explanation": "Could not verify claim at this time.",
+        "explanation": "Analysis inconclusive.",
         "bias_rating": "Neutral",
         "flags": [],
         "estimated_sources": []
@@ -57,40 +89,48 @@ def safe_response():
 async def check_trust(text: str = Form(...)):
     
     base = safe_response()
-    current_date = datetime.now().strftime("%d %B %Y")
+    
+    # --- PHASE 1: PYTHON LOGIC CHECK ---
+    is_date, d_verdict, d_score, d_expl = check_date_claim(text)
+    if is_date:
+        return JSONResponse({
+            "claim_type": "Fact",
+            "verdict": d_verdict,
+            "trust_score": d_score,
+            "risk_level": "Low" if d_verdict == "Verified" else "High",
+            "confidence_band": "High",
+            "explanation": d_expl,
+            "bias_rating": "Neutral",
+            "flags": [],
+            "estimated_sources": ["System Calendar"]
+        })
 
-    # STEP 1: PERFORM LIVE SEARCH
-    # We search the web for the user's text to get the latest facts.
-    print(f"Searching web for: {text[:50]}...")
+    # --- PHASE 2: LIVE SEARCH ---
     web_context, web_sources = search_web(text)
 
-    # STEP 2: FEED CONTEXT TO AI
+    # --- PHASE 3: AI ANALYSIS ---
     system_prompt = f"""
-    You are a Fact-Checking AI with LIVE INTERNET ACCESS.
-    Current Date: {current_date}
+    You are a Fact-Checking AI.
+    Current Date: {datetime.now().strftime("%d %B %Y")}
 
-    CONTEXT FROM WEB SEARCH:
-    {web_context if web_context else "No search results found. Rely on internal memory."}
-
-    TASK:
-    Analyze the user's claim based on the WEB CONTEXT above.
+    WEB CONTEXT:
+    {web_context if web_context else "No search results. Rely on logical analysis."}
 
     RULES:
-    1. If the Web Context confirms the claim -> Verdict: Verified.
-    2. If the Web Context debunks the claim -> Verdict: False.
-    3. If the Web Context is empty/unclear -> Verdict: Unverified.
-    4. CITE SOURCES: Use the domain names from the context (e.g. bbc.com, reuters.com).
-
+    1. If Web Context confirms claim -> Verified.
+    2. If Web Context debunks claim -> False.
+    3. If Web Context is empty -> Unverified.
+    
     OUTPUT JSON:
     {{
-     "claim_type": "Fact|Rumor|Opinion|Satire|Breaking-News",
-     "verdict": "Verified|Unverified|False|Misleading",
+     "claim_type": "Fact|Rumor|Opinion",
+     "verdict": "Verified|Unverified|False",
      "trust_score": (0-100),
      "risk_level": "Low|Medium|High",
-     "explanation": "Explain using the search results.",
+     "explanation": "Reasoning based on context.",
      "bias_rating": "Neutral|Left|Right",
-     "flags": ["list", "flags"],
-     "estimated_sources": ["List of sources found"]
+     "flags": [],
+     "estimated_sources": []
     }}
     """
 
@@ -106,22 +146,34 @@ async def check_trust(text: str = Form(...)):
         )
 
         ai = json.loads(completion.choices[0].message.content)
-
-        # STEP 3: MERGE & FORMAT
+        
         result = base.copy()
         result.update({k: ai.get(k, base[k]) for k in base})
 
-        # Override sources with REAL links if available
         if web_sources:
-            # Just show domain names to keep it clean, or full URLs
             clean_sources = [url.split('/')[2] for url in web_sources]
             result["estimated_sources"] = clean_sources
 
-        # Confidence Calculation
-        if web_context:
-            result["confidence_band"] = "High" # We have real data!
-        else:
-            result["confidence_band"] = "Low"
+        result["flags"] = run_heuristics(text, result["flags"])
+
+        # --- SCORE SYNC (THE FIX) ---
+        # Force score to match verdict logic
+        verdict = result["verdict"]
+        
+        if verdict == "False":
+            # If false, score MUST be low (0-20)
+            result["trust_score"] = min(result["trust_score"], 20)
+            result["risk_level"] = "High"
+            
+        elif verdict == "Verified":
+            # If verified, score MUST be high (80-100)
+            result["trust_score"] = max(result["trust_score"], 80)
+            result["risk_level"] = "Low"
+            
+        elif verdict == "Unverified":
+            # If unverified, keep it neutral (40-60)
+            result["trust_score"] = 50
+            result["risk_level"] = "Medium"
 
         return JSONResponse(result)
 
