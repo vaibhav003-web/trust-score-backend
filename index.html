@@ -1,205 +1,51 @@
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>VerifAI - The Truth Engine</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <title>VerifAI — Credibility Check</title>
     <style>
-        body { background: radial-gradient(circle at top center, #1e293b, #020617); min-height: 100vh; }
-        .glass-panel { background: rgba(255, 255, 255, 0.03); backdrop-filter: blur(10px); border: 1px solid rgba(255, 255, 255, 0.1); }
-        .glow-text { text-shadow: 0 0 20px rgba(59, 130, 246, 0.5); }
+        body { font-family: Arial; background:#f8fafc; padding:30px; }
+        textarea { width:100%; height:120px; padding:10px; }
+        button { padding:10px 20px; margin-top:10px; }
+        .box { background:white; padding:20px; margin-top:20px; border-radius:10px; }
+        .green { color:#16a34a; }
+        .red { color:#dc2626; }
+        .yellow { color:#ca8a04; }
+        .orange { color:#ea580c; }
     </style>
 </head>
-<body class="text-white font-sans antialiased">
+<body>
 
-    <nav class="fixed w-full z-50 glass-panel border-b-0 border-b-gray-800">
-        <div class="max-w-6xl mx-auto px-6 py-4 flex justify-between items-center">
-            <div class="flex items-center gap-2">
-                <div class="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center shadow-lg shadow-blue-500/30">
-                    <i class="fas fa-check text-white text-sm"></i>
-                </div>
-                <span class="text-xl font-bold tracking-tight">Verif<span class="text-blue-500">AI</span></span>
-            </div>
-            
-            <a href="https://buymeacoffee.com/trustscore" target="_blank" 
-               class="flex items-center gap-2 bg-gradient-to-r from-yellow-500 to-yellow-600 text-black font-bold py-2 px-5 rounded-full text-sm hover:scale-105 transition-transform">
-                <i class="fas fa-coffee"></i> <span>Support</span>
-            </a>
-        </div>
-    </nav>
+<h2>🛡️ VerifAI — Credibility Assessment</h2>
 
-    <div class="pt-32 pb-20 px-6">
-        <div class="max-w-4xl mx-auto text-center relative">
-            
-            <div class="absolute top-0 left-1/2 -translate-x-1/2 w-96 h-96 bg-blue-600 rounded-full blur-[128px] opacity-20 -z-10"></div>
+<textarea id="text" placeholder="Paste text here..."></textarea><br>
+<button onclick="check()">Analyze</button>
 
-            <h1 class="text-5xl md:text-7xl font-extrabold mb-6 tracking-tight">
-                Analyze Truth <br>
-                <span class="text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-cyan-300 glow-text">In Images & Text.</span>
-            </h1>
+<div id="out" class="box" style="display:none"></div>
 
-            <div class="glass-panel rounded-2xl p-2 shadow-2xl shadow-blue-900/20 max-w-3xl mx-auto">
-                <div class="relative">
-                    <textarea id="inputText" 
-                        class="w-full h-40 bg-transparent text-lg p-6 rounded-xl text-gray-100 placeholder-gray-600 focus:outline-none resize-none"
-                        placeholder="Paste text or describe the image..."></textarea>
-                    
-                    <div id="filePreview" class="hidden px-6 pb-2 text-left">
-                        <span class="bg-blue-900/50 text-blue-300 text-xs px-3 py-1 rounded-full border border-blue-500/30">
-                            <i class="fas fa-image mr-1"></i> <span id="fileName">image.jpg</span>
-                            <button onclick="clearImage()" class="ml-2 hover:text-white"><i class="fas fa-times"></i></button>
-                        </span>
-                    </div>
+<script>
+async function check() {
+    const text = document.getElementById("text").value;
+    const form = new FormData();
+    form.append("text", text);
 
-                    <div class="flex justify-between items-center border-t border-gray-700/50 p-4">
-                        <div class="flex items-center">
-                            <input type="file" id="imageInput" class="hidden" accept="image/*" onchange="handleFileSelect()">
-                            <button onclick="document.getElementById('imageInput').click()" 
-                                class="text-gray-400 hover:text-blue-400 transition-colors flex items-center gap-2 text-sm font-semibold uppercase tracking-wider">
-                                <i class="fas fa-camera text-lg"></i> <span class="hidden md:inline">Add Photo</span>
-                            </button>
-                        </div>
+    const res = await fetch("/check", { method:"POST", body:form });
+    const data = await res.json();
 
-                        <button onclick="analyze()" id="analyzeBtn" class="bg-blue-600 hover:bg-blue-500 text-white font-bold py-3 px-8 rounded-xl transition-all shadow-lg shadow-blue-600/30">
-                            <span>Analyze Truth</span> <i class="fas fa-arrow-right ml-2"></i>
-                        </button>
-                    </div>
-                </div>
-            </div>
+    let color = "yellow";
+    if (data.verdict === "Verified") color = "green";
+    if (data.verdict === "False") color = "red";
+    if (data.verdict === "Misleading") color = "orange";
 
-            <div id="loader" class="hidden mt-12">
-                <div class="flex flex-col items-center gap-4">
-                    <div class="w-12 h-12 border-4 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
-                    <p class="text-blue-400 font-mono text-sm animate-pulse">Running Vision & Text Analysis...</p>
-                </div>
-            </div>
+    document.getElementById("out").style.display = "block";
+    document.getElementById("out").innerHTML = `
+        <b class="${color}">${data.verdict}</b> (${data.claim_type})<br><br>
+        <b>Score:</b> ${data.trust_score}/100 (${data.confidence_band})<br>
+        <b>Risk:</b> ${data.risk_level}<br><br>
+        <b>Explanation:</b> ${data.explanation}<br><br>
+        <b>Sources:</b> ${data.estimated_sources.length ? data.estimated_sources.join(", ") : "None"}
+    `;
+}
+</script>
 
-            <div id="results" class="hidden mt-12 max-w-3xl mx-auto text-left">
-                <div class="glass-panel rounded-2xl p-8 mb-6 border border-gray-700 relative overflow-hidden">
-                    <div class="flex flex-col md:flex-row items-center justify-between gap-8">
-                        <div class="text-center md:text-left">
-                            <h3 class="text-gray-400 text-sm font-semibold uppercase tracking-wider mb-1">Trust Score</h3>
-                            <div class="text-6xl font-bold text-white tracking-tighter" id="scoreDisplay">--</div>
-                        </div>
-                        <div class="flex-1 w-full">
-                            <div class="flex items-center gap-3 mb-2">
-                                <span id="statusDisplay" class="text-xl font-bold text-white">--</span>
-                            </div>
-                            <div class="w-full bg-gray-800 rounded-full h-3 overflow-hidden">
-                                <div id="progressBar" class="h-full bg-blue-500 w-0 transition-all duration-1000"></div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    <div class="glass-panel p-6 rounded-2xl md:col-span-2">
-                        <h4 class="text-gray-400 text-xs font-bold uppercase mb-3"><i class="fas fa-brain text-purple-400 mr-2"></i> AI Reasoning</h4>
-                        <p id="reasonDisplay" class="text-gray-200 leading-relaxed text-lg"></p>
-                    </div>
-                    <div class="glass-panel p-6 rounded-2xl">
-                        <h4 class="text-gray-400 text-xs font-bold uppercase mb-3"><i class="fas fa-balance-scale text-blue-400 mr-2"></i> Bias Check</h4>
-                        <p id="biasDisplay" class="text-xl font-semibold text-white">--</p>
-                    </div>
-                    <div class="glass-panel p-6 rounded-2xl">
-                        <h4 class="text-gray-400 text-xs font-bold uppercase mb-3"><i class="fas fa-flag text-red-400 mr-2"></i> Red Flags</h4>
-                        <ul id="flagsList" class="space-y-2 text-sm text-red-300"></ul>
-                    </div>
-                </div>
-            </div>
-
-        </div>
-    </div>
-
-    <script>
-        // Handle File Selection UI
-        function handleFileSelect() {
-            const file = document.getElementById('imageInput').files[0];
-            if (file) {
-                document.getElementById('filePreview').classList.remove('hidden');
-                document.getElementById('fileName').innerText = file.name;
-            }
-        }
-        function clearImage() {
-            document.getElementById('imageInput').value = "";
-            document.getElementById('filePreview').classList.add('hidden');
-        }
-
-        async function analyze() {
-            const text = document.getElementById("inputText").value;
-            const fileInput = document.getElementById("imageInput");
-            
-            // Allow if EITHER text is present OR an image is uploaded
-            if (!text && (!fileInput.files || fileInput.files.length === 0)) {
-                return alert("Please enter text or upload an image.");
-            }
-
-            // UI Reset
-            const btn = document.getElementById("analyzeBtn");
-            const loader = document.getElementById("loader");
-            const results = document.getElementById("results");
-            
-            btn.disabled = true;
-            btn.innerHTML = '<i class="fas fa-circle-notch fa-spin"></i> Processing...';
-            loader.classList.remove("hidden");
-            results.classList.add("hidden");
-
-            try {
-                // PREPARE DATA (Text + Image)
-                const formData = new FormData();
-                formData.append("text", text || "Analyze this image for credibility.");
-                if (fileInput.files && fileInput.files[0]) {
-                    formData.append("image", fileInput.files[0]);
-                }
-
-                // SEND TO BACKEND
-                const response = await fetch("/check", {
-                    method: "POST",
-                    body: formData // No Headers needed, browser handles multipart
-                });
-
-                if (!response.ok) {
-                    throw new Error(`Server Error: ${response.status}`);
-                }
-
-                const data = await response.json();
-                
-                // Update Data
-                document.getElementById("scoreDisplay").innerText = data.score + "/100";
-                document.getElementById("reasonDisplay").innerText = data.reason;
-                document.getElementById("biasDisplay").innerText = data.bias;
-                
-                // Colors
-                let colorClass = data.score >= 80 ? "bg-green-500" : data.score >= 50 ? "bg-yellow-500" : "bg-red-500";
-                let textStatus = data.score >= 80 ? "Verified Credible" : data.score >= 50 ? "Unverified / Caution" : "High Risk / Fake";
-                let textClass = data.score >= 80 ? "text-green-400" : data.score >= 50 ? "text-yellow-400" : "text-red-400";
-
-                document.getElementById("statusDisplay").innerText = textStatus;
-                document.getElementById("statusDisplay").className = `text-xl font-bold ${textClass}`;
-                document.getElementById("progressBar").className = `h-full ${colorClass}`;
-                document.getElementById("progressBar").style.width = data.score + "%";
-
-                const list = document.getElementById("flagsList");
-                list.innerHTML = "";
-                data.flags.forEach(flag => {
-                    const li = document.createElement("li");
-                    li.innerHTML = `<i class="fas fa-exclamation-triangle mr-2"></i> ${flag}`;
-                    list.appendChild(li);
-                });
-
-                loader.classList.add("hidden");
-                results.classList.remove("hidden");
-
-            } catch (err) {
-                alert("Server is waking up or Error occurred. Please try again.");
-                console.error(err);
-            } finally {
-                btn.disabled = false;
-                btn.innerHTML = '<span>Analyze Truth</span> <i class="fas fa-arrow-right ml-2"></i>';
-            }
-        }
-    </script>
 </body>
 </html>
