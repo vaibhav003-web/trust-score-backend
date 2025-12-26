@@ -3,103 +3,194 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>VerifAI - Intelligent Credibility</title>
+    <title>VerifAI - Official Report</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
     <style>
-        body { background: radial-gradient(circle at top center, #0f172a, #020617); min-height: 100vh; color: white; font-family: sans-serif; }
-        .glass { background: rgba(255, 255, 255, 0.03); backdrop-filter: blur(12px); border: 1px solid rgba(255,255,255,0.08); }
-        .glow { box-shadow: 0 0 20px rgba(37, 99, 235, 0.2); }
-        .fade-in { animation: fadeIn 0.5s ease-in; }
-        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
-        #analyzeBtn { position: relative; z-index: 50; cursor: pointer; }
+        /* Base Theme */
+        body { background: #0f172a; min-height: 100vh; color: #e2e8f0; font-family: 'Segoe UI', sans-serif; }
+        
+        /* Glassmorphism */
+        .glass-panel { 
+            background: rgba(30, 41, 59, 0.7); 
+            backdrop-filter: blur(20px); 
+            border: 1px solid rgba(255, 255, 255, 0.1); 
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+        }
+
+        /* THE STAMP EFFECT - The Mass Market "Hook" */
+        .stamp-box {
+            position: relative;
+            display: inline-block;
+            padding: 0.5rem 2rem;
+            text-transform: uppercase;
+            font-weight: 900;
+            font-size: 2rem;
+            border: 5px solid;
+            border-radius: 10px;
+            transform: rotate(-12deg);
+            opacity: 0; /* Hidden initially, shown on analyze */
+            animation: stampIn 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
+            animation-delay: 0.2s;
+            letter-spacing: 0.1em;
+            mask-image: url('https://s3-us-west-2.amazonaws.com/s.cdpn.io/8399/grunge.png');
+            mask-size: 940px 600px;
+            mix-blend-mode: hard-light;
+        }
+
+        /* Stamp Variations */
+        .stamp-verified {
+            color: #22c55e;
+            border-color: #22c55e;
+            text-shadow: 0 0 15px rgba(34, 197, 94, 0.5);
+        }
+        .stamp-false {
+            color: #ef4444;
+            border-color: #ef4444;
+            text-shadow: 0 0 15px rgba(239, 68, 68, 0.5);
+        }
+        .stamp-unverified {
+            color: #f59e0b;
+            border-color: #f59e0b;
+            border-style: double;
+            border-width: 8px;
+            text-shadow: 0 0 15px rgba(245, 158, 11, 0.5);
+        }
+
+        /* Animation for Stamp Landing */
+        @keyframes stampIn {
+            0% { transform: scale(3) rotate(0deg); opacity: 0; }
+            100% { transform: scale(1) rotate(-12deg); opacity: 0.9; }
+        }
+
+        /* Report Paper Look */
+        .report-card {
+            background: #1e293b;
+            border-top: 4px solid #3b82f6;
+            background-image: radial-gradient(#334155 1px, transparent 1px);
+            background-size: 20px 20px;
+        }
+
+        #analyzeBtn { z-index: 50; cursor: pointer; }
     </style>
 </head>
-<body class="text-gray-100">
+<body class="antialiased">
 
-    <nav class="p-5 border-b border-gray-800 glass sticky top-0 z-40">
-        <div class="max-w-4xl mx-auto flex justify-between items-center">
-            <div class="flex items-center gap-2 text-xl font-bold tracking-tight">
-                <i class="fas fa-shield-alt text-blue-500"></i> VerifAI 
+    <nav class="flex items-center justify-between px-6 py-4 border-b border-slate-800 bg-slate-900/80 sticky top-0 z-50 backdrop-blur">
+        <div class="flex items-center gap-3">
+            <div class="bg-blue-600 w-8 h-8 rounded flex items-center justify-center shadow-lg shadow-blue-500/30">
+                <i class="fas fa-check text-white text-sm"></i>
             </div>
-            <a href="https://buymeacoffee.com/trustscore" target="_blank" class="text-sm text-gray-400 hover:text-white transition">Support</a>
+            <span class="text-xl font-bold tracking-tight text-white">Verif<span class="text-blue-500">AI</span></span>
+        </div>
+        <div class="text-xs font-mono text-slate-500 border border-slate-800 px-2 py-1 rounded bg-slate-900">
+            SECURE // OFFLINE
         </div>
     </nav>
 
-    <div class="max-w-2xl mx-auto mt-12 p-6 relative z-10">
-        <div class="text-center mb-10">
-            <h1 class="text-4xl font-extrabold mb-3 tracking-tight">Analyze Truth & Bias</h1>
-            <p class="text-gray-400 text-sm">Paste any forwarded message to check for viral patterns and manipulation.</p>
+    <main class="max-w-xl mx-auto px-4 pt-8 pb-20">
+        
+        <div class="text-center mb-8">
+            <h1 class="text-3xl font-bold text-white mb-2">Fact-Check Any Message</h1>
+            <p class="text-slate-400 text-sm">Paste a forwarded WhatsApp message below to audit it for lies, viral patterns, and manipulation.</p>
         </div>
 
-        <div class="glass rounded-2xl p-1 shadow-2xl glow relative z-20">
-            <div class="bg-gray-900/50 rounded-xl p-4">
-                <textarea id="inputText" class="w-full h-40 bg-transparent text-lg text-gray-200 placeholder-gray-600 focus:outline-none resize-none" placeholder="Paste article, message, or claim here..."></textarea>
+        <div class="glass-panel rounded-2xl p-1 relative z-20 shadow-2xl">
+            <div class="bg-slate-900 rounded-xl p-4">
+                <textarea id="inputText" 
+                    class="w-full h-32 bg-transparent text-lg text-white placeholder-slate-600 focus:outline-none resize-none font-sans" 
+                    placeholder="Paste text here..."></textarea>
                 
-                <div class="flex justify-end items-center mt-4 pt-4 border-t border-gray-800 relative z-30">
-                    <button onclick="analyze()" id="analyzeBtn" class="bg-blue-600 hover:bg-blue-500 text-white font-bold py-2 px-8 rounded-lg transition-all shadow-lg shadow-blue-900/50 active:scale-95">
-                        Analyze Text
+                <div class="flex justify-end pt-4 border-t border-slate-800">
+                    <button onclick="analyze()" id="analyzeBtn" 
+                        class="bg-blue-600 hover:bg-blue-500 text-white font-bold py-3 px-8 rounded-lg shadow-lg shadow-blue-900/50 transition-all active:scale-95 flex items-center gap-2">
+                        <span>Analyze Truth</span> <i class="fas fa-search"></i>
                     </button>
                 </div>
             </div>
         </div>
 
-        <div id="results" class="hidden mt-10 space-y-6 fade-in relative z-10">
+        <div id="results" class="hidden mt-8 fade-in relative z-10">
             
-            <div id="verdictBox" class="p-6 rounded-xl text-center border relative overflow-hidden">
-                <div class="relative z-10">
-                    <div id="verdictTitle" class="text-3xl font-extrabold tracking-tight mb-1">--</div>
-                    <div id="verdictSubtitle" class="text-sm font-medium opacity-80 uppercase tracking-widest">--</div>
+            <div class="report-card rounded-xl shadow-2xl overflow-hidden relative">
+                
+                <div class="bg-slate-800/50 px-4 py-2 flex justify-between items-center border-b border-slate-700">
+                    <span class="text-[10px] text-slate-400 font-mono tracking-widest uppercase">VerifAI Audit #<span id="randomId">8293</span></span>
+                    <span class="text-[10px] text-slate-400 font-mono" id="dateDisplay">DATE</span>
+                </div>
+
+                <div class="p-8 text-center relative">
+                    <div id="stampContainer" class="mb-6 h-24 flex items-center justify-center relative z-20">
+                        </div>
+
+                    <h2 id="verdictSubtitle" class="text-slate-400 text-xs font-bold uppercase tracking-[0.2em] mb-4">CLAIM ANALYSIS</h2>
+                    
+                    <div class="flex items-center justify-center gap-8 mb-6">
+                        <div class="text-center">
+                            <div class="text-[10px] text-slate-500 uppercase font-bold">Trust Score</div>
+                            <div id="scoreVal" class="text-4xl font-black text-white">--</div>
+                        </div>
+                        <div class="w-px h-10 bg-slate-700"></div>
+                        <div class="text-center">
+                            <div class="text-[10px] text-slate-500 uppercase font-bold">Risk Level</div>
+                            <div id="riskVal" class="text-lg font-bold text-white mt-1">--</div>
+                        </div>
+                    </div>
+
+                    <div class="bg-slate-900/50 rounded-lg p-4 text-left border border-slate-700/50">
+                        <p id="explanation" class="text-slate-300 text-sm leading-relaxed"></p>
+                    </div>
+
+                    <div class="mt-4 text-left">
+                        <ul id="flagsList" class="space-y-2"></ul>
+                    </div>
+                </div>
+
+                <div class="bg-slate-900 px-6 py-4 border-t border-slate-800">
+                    <div class="text-[10px] text-slate-500 uppercase font-bold mb-2">Internal Verification Match</div>
+                    <ul id="sourcesList" class="space-y-1"></ul>
                 </div>
             </div>
 
-            <div class="grid grid-cols-2 md:grid-cols-3 gap-4">
-                <div class="glass p-4 rounded-xl text-center">
-                    <div class="text-gray-500 text-[10px] uppercase font-bold tracking-wider mb-1">Credibility Score</div>
-                    <div id="scoreVal" class="text-3xl font-bold text-white">--</div>
-                    <div id="confVal" class="text-[10px] text-gray-400 mt-1">--</div>
-                </div>
-                <div class="glass p-4 rounded-xl text-center">
-                    <div class="text-gray-500 text-[10px] uppercase font-bold tracking-wider mb-1">Risk Level</div>
-                    <div id="riskVal" class="text-xl font-bold text-white mt-1">--</div>
-                </div>
-                <div class="glass p-4 rounded-xl text-center col-span-2 md:col-span-1">
-                    <div class="text-gray-500 text-[10px] uppercase font-bold tracking-wider mb-1">Bias / Tone</div>
-                    <div id="biasVal" class="text-sm font-medium text-white mt-2">--</div>
-                </div>
+            <div class="grid grid-cols-4 gap-3 mt-4">
+                <button onclick="shareResult()" class="col-span-3 bg-green-600 hover:bg-green-500 text-white font-bold py-4 rounded-xl shadow-lg shadow-green-900/20 active:scale-95 flex items-center justify-center gap-2">
+                    <i class="fab fa-whatsapp text-2xl"></i>
+                    <div class="text-left leading-tight">
+                        <div class="text-xs opacity-80 font-normal">Share Report</div>
+                        <div class="text-sm">Send to WhatsApp</div>
+                    </div>
+                </button>
+                <button onclick="copyReport()" class="col-span-1 bg-slate-700 hover:bg-slate-600 text-white font-bold rounded-xl shadow-lg active:scale-95">
+                    <i class="fas fa-copy"></i>
+                </button>
             </div>
+            
+            <p class="text-center text-slate-600 text-xs mt-6">
+                VerifAI is an offline credibility assessment tool. <br>Always verify important news with official sources.
+            </p>
 
-            <div class="glass p-6 rounded-xl">
-                <div class="flex items-center gap-2 mb-3">
-                    <i class="fas fa-brain text-purple-400"></i>
-                    <h3 class="text-sm font-bold text-gray-300 uppercase">Reasoning</h3>
-                </div>
-                <p id="explanation" class="text-gray-300 leading-relaxed text-sm"></p>
-            </div>
-
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div class="glass p-5 rounded-xl border-l-4 border-red-500/30">
-                    <h3 class="text-xs font-bold text-gray-400 uppercase mb-3">Risk Flags</h3>
-                    <ul id="flagsList" class="space-y-2 text-sm"></ul>
-                </div>
-                <div class="glass p-5 rounded-xl border-l-4 border-green-500/30">
-                    <h3 class="text-xs font-bold text-gray-400 uppercase mb-3">Estimated Sources <span class="text-[9px] lowercase opacity-50">(offline memory)</span></h3>
-                    <ul id="sourcesList" class="space-y-2 text-sm"></ul>
-                </div>
-            </div>
         </div>
-    </div>
+    </main>
 
     <script>
+        // Set Date
+        const now = new Date();
+        document.getElementById("dateDisplay").innerText = now.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }).toUpperCase();
+        document.getElementById("randomId").innerText = Math.floor(1000 + Math.random() * 9000);
+
+        let currentResult = {};
+        let currentInput = "";
+
         async function analyze() {
             const text = document.getElementById("inputText").value;
+            currentInput = text.length > 50 ? text.substring(0, 50) + "..." : text;
             const btn = document.getElementById("analyzeBtn");
             
             if (!text) return alert("Please enter text.");
             
             // UI Loading
             btn.disabled = true;
-            btn.innerHTML = '<i class="fas fa-circle-notch fa-spin"></i> Processing...';
+            btn.innerHTML = '<i class="fas fa-circle-notch fa-spin"></i> Audit Running...';
             document.getElementById("results").classList.add("hidden");
             
             const formData = new FormData();
@@ -108,45 +199,54 @@
             try {
                 const res = await fetch("/check", { method: "POST", body: formData });
                 const data = await res.json();
+                currentResult = data;
                 
                 // --- RENDER UI ---
                 document.getElementById("results").classList.remove("hidden");
                 
-                // Colors based on Verdict
-                let bgClass = "bg-yellow-500/10 border-yellow-500/50 text-yellow-500";
-                if(data.verdict === "Verified" || data.verdict === "History Match") bgClass = "bg-green-500/10 border-green-500/50 text-green-400";
-                if(data.verdict === "False") bgClass = "bg-red-500/10 border-red-500/50 text-red-400";
-                
-                const box = document.getElementById("verdictBox");
-                box.className = `p-6 rounded-xl text-center border relative overflow-hidden ${bgClass}`;
-                
-                document.getElementById("verdictTitle").innerText = data.verdict || "Unverified";
-                document.getElementById("verdictSubtitle").innerText = data.claim_type || "Unknown";
+                // 1. GENERATE STAMP HTML
+                const verdict = data.verdict || "UNVERIFIED";
+                let stampClass = "stamp-unverified";
+                if(verdict === "Verified" || verdict === "History Match") stampClass = "stamp-verified";
+                if(verdict === "False") stampClass = "stamp-false";
 
-                document.getElementById("scoreVal").innerText = data.trust_score;
-                document.getElementById("scoreVal").className = `text-3xl font-bold ${data.trust_score > 60 ? 'text-green-400' : data.trust_score < 40 ? 'text-red-400' : 'text-yellow-400'}`;
+                const stampContainer = document.getElementById("stampContainer");
+                // Reset animation
+                stampContainer.innerHTML = '';
+                void stampContainer.offsetWidth; // Trigger reflow
+                stampContainer.innerHTML = `<div class="stamp-box ${stampClass}">${verdict}</div>`;
+
+                // 2. FILL DATA
+                document.getElementById("verdictSubtitle").innerText = `CLAIM TYPE: ${data.claim_type || "UNKNOWN"}`;
                 
-                document.getElementById("confVal").innerText = "Confidence: " + (data.confidence_band || "Medium");
+                // Colors for score
+                const scoreEl = document.getElementById("scoreVal");
+                scoreEl.innerText = data.trust_score;
+                if(data.trust_score > 60) scoreEl.className = "text-4xl font-black text-green-400";
+                else if(data.trust_score < 40) scoreEl.className = "text-4xl font-black text-red-400";
+                else scoreEl.className = "text-4xl font-black text-yellow-400";
+
                 document.getElementById("riskVal").innerText = data.risk_level || "Medium";
-                document.getElementById("biasVal").innerText = data.bias_rating || "Neutral";
+                document.getElementById("riskVal").className = `text-lg font-bold ${data.risk_level === 'High' ? 'text-red-400' : 'text-slate-200'}`;
+
                 document.getElementById("explanation").innerText = data.explanation || "No explanation provided.";
 
                 // Flags
                 const flags = document.getElementById("flagsList");
                 flags.innerHTML = "";
                 if(data.flags && data.flags.length) {
-                    data.flags.forEach(f => flags.innerHTML += `<li class="flex items-start gap-2 text-red-300"><i class="fas fa-exclamation-triangle mt-1"></i> <span>${f}</span></li>`);
+                    data.flags.forEach(f => flags.innerHTML += `<li class="flex items-start gap-2 text-xs text-red-300 bg-red-900/20 p-2 rounded border border-red-900/30"><i class="fas fa-exclamation-triangle mt-0.5"></i> <span>${f}</span></li>`);
                 } else {
-                    flags.innerHTML = "<li class='text-gray-500 italic'>No specific risks detected</li>";
+                    flags.innerHTML = "<li class='text-slate-500 text-xs italic'>No specific risk flags detected.</li>";
                 }
 
                 // Sources
                 const sources = document.getElementById("sourcesList");
                 sources.innerHTML = "";
                 if(data.estimated_sources && data.estimated_sources.length) {
-                    data.estimated_sources.forEach(s => sources.innerHTML += `<li class="flex items-start gap-2 text-green-300"><i class="fas fa-check-circle mt-1"></i> <span>${s}</span></li>`);
+                    data.estimated_sources.forEach(s => sources.innerHTML += `<li class="flex items-center gap-2 text-xs text-green-400"><i class="fas fa-database"></i> <span>${s}</span></li>`);
                 } else {
-                    sources.innerHTML = "<li class='text-gray-500 italic'>No sources in offline memory</li>";
+                    sources.innerHTML = "<li class='text-slate-600 text-xs italic'>No matching sources in offline database.</li>";
                 }
 
             } catch (e) {
@@ -154,8 +254,36 @@
                 alert("Server error. Please ensure backend is running.");
             } finally {
                 btn.disabled = false;
-                btn.innerHTML = 'Analyze Text';
+                btn.innerHTML = '<span>Analyze Truth</span> <i class="fas fa-search"></i>';
             }
+        }
+
+        function shareResult() {
+            if (!currentResult.verdict) return;
+
+            const verdictIcon = currentResult.verdict === "Verified" ? "✅" : currentResult.verdict === "False" ? "❌" : "⚠️";
+
+            const shareText = `*VerifAI Security Report* 🛡️\n\n` +
+                `📝 *Claim:* "${currentInput}"\n` +
+                `${verdictIcon} *Verdict:* ${currentResult.verdict.toUpperCase()}\n` +
+                `📊 *Score:* ${currentResult.trust_score}/100\n` +
+                `🚨 *Risk:* ${currentResult.risk_level}\n\n` +
+                `*Verify your messages here:* 👇\n` +
+                `https://trust-score.onrender.com`;
+
+            if (navigator.share) {
+                navigator.share({ title: 'VerifAI Report', text: shareText }).catch(console.error);
+            } else {
+                window.open(`https://wa.me/?text=${encodeURIComponent(shareText)}`, '_blank');
+            }
+        }
+
+        function copyReport() {
+             if (!currentResult.verdict) return;
+             const verdictIcon = currentResult.verdict === "Verified" ? "✅" : currentResult.verdict === "False" ? "❌" : "⚠️";
+             const shareText = `*VerifAI Security Report* 🛡️\n\n📝 *Claim:* "${currentInput}"\n${verdictIcon} *Verdict:* ${currentResult.verdict.toUpperCase()}\n📊 *Score:* ${currentResult.trust_score}/100\n🚨 *Risk:* ${currentResult.risk_level}\n\n*Verify here:* https://trust-score.onrender.com`;
+             
+             navigator.clipboard.writeText(shareText).then(() => alert("Report copied!"));
         }
     </script>
 </body>
