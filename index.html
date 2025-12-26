@@ -10,50 +10,41 @@
         body { background: radial-gradient(circle at top center, #0f172a, #020617); min-height: 100vh; color: white; font-family: sans-serif; }
         .glass { background: rgba(255, 255, 255, 0.03); backdrop-filter: blur(12px); border: 1px solid rgba(255,255,255,0.08); }
         .glow { box-shadow: 0 0 20px rgba(37, 99, 235, 0.2); }
+        .fade-in { animation: fadeIn 0.5s ease-in; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        #analyzeBtn { position: relative; z-index: 50; cursor: pointer; }
     </style>
 </head>
 <body class="text-gray-100">
 
-    <nav class="p-5 border-b border-gray-800 glass sticky top-0 z-50">
+    <nav class="p-5 border-b border-gray-800 glass sticky top-0 z-40">
         <div class="max-w-4xl mx-auto flex justify-between items-center">
             <div class="flex items-center gap-2 text-xl font-bold tracking-tight">
                 <i class="fas fa-shield-alt text-blue-500"></i> VerifAI 
-                <span class="text-[10px] bg-blue-900/50 text-blue-200 px-2 py-0.5 rounded-full ml-1 border border-blue-800">OFFLINE BETA</span>
             </div>
             <a href="https://buymeacoffee.com/trustscore" target="_blank" class="text-sm text-gray-400 hover:text-white transition">Support</a>
         </div>
     </nav>
 
-    <div class="max-w-2xl mx-auto mt-12 p-6">
+    <div class="max-w-2xl mx-auto mt-12 p-6 relative z-10">
         <div class="text-center mb-10">
             <h1 class="text-4xl font-extrabold mb-3 tracking-tight">Analyze Truth & Bias</h1>
-            <p class="text-gray-400 text-sm">Powered by Logic-First AI. Detects manipulation, viral patterns, and fallacies.</p>
+            <p class="text-gray-400 text-sm">Paste any forwarded message to check for viral patterns and manipulation.</p>
         </div>
 
-        <div class="glass rounded-2xl p-1 shadow-2xl glow">
+        <div class="glass rounded-2xl p-1 shadow-2xl glow relative z-20">
             <div class="bg-gray-900/50 rounded-xl p-4">
-                <textarea id="inputText" class="w-full h-32 bg-transparent text-lg text-gray-200 placeholder-gray-600 focus:outline-none resize-none" placeholder="Paste article, message, or claim here..."></textarea>
+                <textarea id="inputText" class="w-full h-40 bg-transparent text-lg text-gray-200 placeholder-gray-600 focus:outline-none resize-none" placeholder="Paste article, message, or claim here..."></textarea>
                 
-                <div id="filePreview" class="hidden text-sm bg-blue-900/20 text-blue-300 px-3 py-2 rounded-lg mt-2 flex items-center gap-2">
-                    <i class="fas fa-image"></i> <span id="fileName">image.jpg</span>
-                    <button onclick="clearFile()" class="ml-auto text-gray-400 hover:text-white"><i class="fas fa-times"></i></button>
-                </div>
-
-                <div class="flex justify-between items-center mt-4 pt-4 border-t border-gray-800">
-                    <div>
-                        <input type="file" id="imageInput" class="hidden" accept="image/*" onchange="handleFile()">
-                        <button onclick="document.getElementById('imageInput').click()" class="text-gray-400 hover:text-blue-400 transition flex items-center gap-2 text-sm font-medium">
-                            <i class="fas fa-camera"></i> <span class="hidden sm:inline">Check Image</span>
-                        </button>
-                    </div>
+                <div class="flex justify-end items-center mt-4 pt-4 border-t border-gray-800 relative z-30">
                     <button onclick="analyze()" id="analyzeBtn" class="bg-blue-600 hover:bg-blue-500 text-white font-bold py-2 px-8 rounded-lg transition-all shadow-lg shadow-blue-900/50 active:scale-95">
-                        Analyze
+                        Analyze Text
                     </button>
                 </div>
             </div>
         </div>
 
-        <div id="results" class="hidden mt-10 space-y-6 fade-in">
+        <div id="results" class="hidden mt-10 space-y-6 fade-in relative z-10">
             
             <div id="verdictBox" class="p-6 rounded-xl text-center border relative overflow-hidden">
                 <div class="relative z-10">
@@ -100,24 +91,11 @@
     </div>
 
     <script>
-        function handleFile() {
-            const file = document.getElementById('imageInput').files[0];
-            if (file) {
-                document.getElementById('filePreview').classList.remove('hidden');
-                document.getElementById('fileName').innerText = file.name;
-            }
-        }
-        function clearFile() {
-            document.getElementById('imageInput').value = "";
-            document.getElementById('filePreview').classList.add('hidden');
-        }
-
         async function analyze() {
             const text = document.getElementById("inputText").value;
-            const file = document.getElementById("imageInput").files[0];
             const btn = document.getElementById("analyzeBtn");
             
-            if (!text && !file) return alert("Please enter text or upload an image.");
+            if (!text) return alert("Please enter text.");
             
             // UI Loading
             btn.disabled = true;
@@ -125,8 +103,7 @@
             document.getElementById("results").classList.add("hidden");
             
             const formData = new FormData();
-            formData.append("text", text || "Analyze this image");
-            if (file) formData.append("image", file);
+            formData.append("text", text);
 
             try {
                 const res = await fetch("/check", { method: "POST", body: formData });
@@ -137,4 +114,49 @@
                 
                 // Colors based on Verdict
                 let bgClass = "bg-yellow-500/10 border-yellow-500/50 text-yellow-500";
-                if(data.verdict === "Verified") bgClass = "bg
+                if(data.verdict === "Verified" || data.verdict === "History Match") bgClass = "bg-green-500/10 border-green-500/50 text-green-400";
+                if(data.verdict === "False") bgClass = "bg-red-500/10 border-red-500/50 text-red-400";
+                
+                const box = document.getElementById("verdictBox");
+                box.className = `p-6 rounded-xl text-center border relative overflow-hidden ${bgClass}`;
+                
+                document.getElementById("verdictTitle").innerText = data.verdict || "Unverified";
+                document.getElementById("verdictSubtitle").innerText = data.claim_type || "Unknown";
+
+                document.getElementById("scoreVal").innerText = data.trust_score;
+                document.getElementById("scoreVal").className = `text-3xl font-bold ${data.trust_score > 60 ? 'text-green-400' : data.trust_score < 40 ? 'text-red-400' : 'text-yellow-400'}`;
+                
+                document.getElementById("confVal").innerText = "Confidence: " + (data.confidence_band || "Medium");
+                document.getElementById("riskVal").innerText = data.risk_level || "Medium";
+                document.getElementById("biasVal").innerText = data.bias_rating || "Neutral";
+                document.getElementById("explanation").innerText = data.explanation || "No explanation provided.";
+
+                // Flags
+                const flags = document.getElementById("flagsList");
+                flags.innerHTML = "";
+                if(data.flags && data.flags.length) {
+                    data.flags.forEach(f => flags.innerHTML += `<li class="flex items-start gap-2 text-red-300"><i class="fas fa-exclamation-triangle mt-1"></i> <span>${f}</span></li>`);
+                } else {
+                    flags.innerHTML = "<li class='text-gray-500 italic'>No specific risks detected</li>";
+                }
+
+                // Sources
+                const sources = document.getElementById("sourcesList");
+                sources.innerHTML = "";
+                if(data.estimated_sources && data.estimated_sources.length) {
+                    data.estimated_sources.forEach(s => sources.innerHTML += `<li class="flex items-start gap-2 text-green-300"><i class="fas fa-check-circle mt-1"></i> <span>${s}</span></li>`);
+                } else {
+                    sources.innerHTML = "<li class='text-gray-500 italic'>No sources in offline memory</li>";
+                }
+
+            } catch (e) {
+                console.error(e);
+                alert("Server error. Please ensure backend is running.");
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = 'Analyze Text';
+            }
+        }
+    </script>
+</body>
+</html>
