@@ -4,9 +4,12 @@ from fastapi.responses import FileResponse, JSONResponse
 import os, json
 from datetime import datetime
 from groq import Groq
+from tavily import TavilyClient
 
 # ---------------- CONFIG ----------------
-client = Groq(api_key=os.environ.get("GROQ_API_KEY"))
+# You need BOTH keys now
+groq_client = Groq(api_key=os.environ.get("GROQ_API_KEY"))
+tavily = TavilyClient(api_key=os.environ.get("TAVILY_API_KEY"))
 
 app = FastAPI()
 app.add_middleware(
@@ -21,42 +24,22 @@ app.add_middleware(
 def home():
     return FileResponse("index.html")
 
-# -------- SAFETY HEURISTICS ----------
-def run_heuristics(text, current_flags):
-    flags = current_flags.copy()
-    text_lower = text.lower()
-    
-    # 1. Viral / Panic Patterns
-    if any(x in text_lower for x in ["forwarded", "share fast", "viral", "whatsapp", "maximum share"]):
-        flags.append("Likely viral/forwarded content")
-    
-    # 2. Time Sensitive
-    if any(x in text_lower for x in ["breaking", "developing story"]):
-        flags.append("Time-sensitive (accuracy decays quickly)")
-        
-    # 3. Overconfidence
-    if any(x in text_lower for x in ["100%", "guaranteed", "proven fact", "official proof"]):
-        flags.append("Manipulative/High-confidence language detected")
+# -------- 1. LIVE WEB SEARCH ----------
+def search_web(query):
+    try:
+        # Search for context (limited to 3 results for speed)
+        response = tavily.search(query=query, search_depth="basic", max_results=3)
+        context = []
+        sources = []
+        for result in response.get('results', []):
+            context.append(f"- {result['content']}")
+            sources.append(result['url'])
+        return "\n".join(context), sources
+    except Exception as e:
+        print(f"Search Error: {e}")
+        return None, []
 
-    return list(set(flags))
-
-# -------- SPECIAL DATE CHECKER (Python Logic) ----------
-def check_date_claim(text):
-    text_lower = text.lower()
-    today = datetime.now()
-    current_day = today.strftime("%A").lower() # e.g. "friday"
-    
-    # Check if user says "Today is [Day]"
-    days = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
-    for day in days:
-        if f"today is {day}" in text_lower:
-            if day == current_day:
-                return True, "Verified", "System Calendar"
-            else:
-                return True, "False", "System Calendar"
-    return False, None, None
-
-# -------- DEFAULT SAFE RESPONSE ----------
+# -------- DEFAULT RESPONSE ----------
 def safe_response():
     return {
         "claim_type": "Unknown",
@@ -64,7 +47,7 @@ def safe_response():
         "trust_score": 50,
         "confidence_band": "Medium",
         "risk_level": "Medium",
-        "explanation": "Analysis inconclusive. Treat as unverified.",
+        "explanation": "Could not verify claim at this time.",
         "bias_rating": "Neutral",
         "flags": [],
         "estimated_sources": []
@@ -74,94 +57,71 @@ def safe_response():
 async def check_trust(text: str = Form(...)):
     
     base = safe_response()
-    
-    # 1. RUN SPECIAL DATE CHECK FIRST
-    is_date_claim, date_verdict, date_source = check_date_claim(text)
-    if is_date_claim:
-        return JSONResponse({
-            "claim_type": "Fact",
-            "verdict": date_verdict,
-            "trust_score": 100 if date_verdict == "Verified" else 0,
-            "risk_level": "Low",
-            "confidence_band": "High",
-            "explanation": f"Validated against system date: {datetime.now().strftime('%A, %d %B %Y')}.",
-            "bias_rating": "Neutral",
-            "flags": [],
-            "estimated_sources": [date_source]
-        })
+    current_date = datetime.now().strftime("%d %B %Y")
 
-    # --- STRICT PROMPT (Tweaked for Myths & History) ---
+    # STEP 1: PERFORM LIVE SEARCH
+    # We search the web for the user's text to get the latest facts.
+    print(f"Searching web for: {text[:50]}...")
+    web_context, web_sources = search_web(text)
+
+    # STEP 2: FEED CONTEXT TO AI
     system_prompt = f"""
-    You are an OFFLINE credibility assessment AI.
-    Current Date: {datetime.now().strftime("%A, %d %B %Y")}
-    
+    You are a Fact-Checking AI with LIVE INTERNET ACCESS.
+    Current Date: {current_date}
+
+    CONTEXT FROM WEB SEARCH:
+    {web_context if web_context else "No search results found. Rely on internal memory."}
+
+    TASK:
+    Analyze the user's claim based on the WEB CONTEXT above.
+
     RULES:
-    1. HISTORICAL FACTS (e.g., "TikTok banned in India", "Earth is round") → Verdict: Verified. Source: "Official Records" or "General Knowledge".
-    2. COMMON MYTHS (e.g., "Hot water kills COVID") → Verdict: False. Source: "Scientific Consensus".
-    3. Opinion/Rant → Verdict: Unverified (Score 50).
-    4. Rumor/Prediction → Verdict: Unverified.
-    5. Breaking News (<24h) → Verdict: Unverified.
-    
+    1. If the Web Context confirms the claim -> Verdict: Verified.
+    2. If the Web Context debunks the claim -> Verdict: False.
+    3. If the Web Context is empty/unclear -> Verdict: Unverified.
+    4. CITE SOURCES: Use the domain names from the context (e.g. bbc.com, reuters.com).
+
     OUTPUT JSON:
     {{
      "claim_type": "Fact|Rumor|Opinion|Satire|Breaking-News",
      "verdict": "Verified|Unverified|False|Misleading",
      "trust_score": (0-100),
      "risk_level": "Low|Medium|High",
-     "explanation": "Clear, logic-based reasoning.",
+     "explanation": "Explain using the search results.",
      "bias_rating": "Neutral|Left|Right",
      "flags": ["list", "flags"],
-     "estimated_sources": ["Source1"] 
+     "estimated_sources": ["List of sources found"]
     }}
     """
 
     try:
-        model = "llama-3.1-8b-instant"
-        messages = [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": text}
-        ]
-
-        completion = client.chat.completions.create(
-            model=model,
-            messages=messages,
+        completion = groq_client.chat.completions.create(
+            model="llama-3.1-8b-instant",
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": text}
+            ],
             temperature=0.0,
             response_format={"type": "json_object"}
         )
 
         ai = json.loads(completion.choices[0].message.content)
 
-        # ---------- SAFE MERGE ----------
+        # STEP 3: MERGE & FORMAT
         result = base.copy()
         result.update({k: ai.get(k, base[k]) for k in base})
 
-        # ---------- LOGIC ENFORCEMENT ----------
+        # Override sources with REAL links if available
+        if web_sources:
+            # Just show domain names to keep it clean, or full URLs
+            clean_sources = [url.split('/')[2] for url in web_sources]
+            result["estimated_sources"] = clean_sources
 
-        # 1. Run Heuristics
-        result["flags"] = run_heuristics(text, result["flags"])
-
-        # 2. Breaking News / Rumor Safety Rule
-        # We relax this slightly: If AI is VERY confident (Verified) and has a source, we let it pass.
-        # We only downgrade if it marks a Rumor as Verified WITHOUT a source.
-        if result["claim_type"] in ["Rumor", "Prediction", "Breaking-News"]:
-            if result["verdict"] == "Verified" and not result["estimated_sources"]:
-                result["verdict"] = "Unverified"
-                result["trust_score"] = 45
-                result["explanation"] += " (Downgraded: Claims require sources.)"
-
-        # 3. Source Enforcement (Relaxed for False Claims)
-        # If something is FALSE (like a myth), we don't strictly require a specific source citation if the AI explains it well.
-        # But for VERIFIED facts, we still want a source.
-        if result["verdict"] == "Verified" and not result["estimated_sources"]:
-             # Last chance: check if it's a known historical fact? 
-             # If not, downgrade.
-             result["verdict"] = "Unverified"
-             result["trust_score"] = 50
-             result["explanation"] += " (Downgraded: No source found in offline memory.)"
-
-        # 4. Calculate Confidence Band
-        s = result["trust_score"]
-        result["confidence_band"] = "High" if s > 65 or s < 20 else ("Low" if s <= 35 else "Medium")
+        # Confidence Calculation
+        if web_context:
+            result["confidence_band"] = "High" # We have real data!
+        else:
+            result["confidence_band"] = "Low"
 
         return JSONResponse(result)
 
