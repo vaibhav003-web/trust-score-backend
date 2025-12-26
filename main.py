@@ -19,6 +19,13 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# -------- NEW: CREDIT SAVER (Health Check) ----------
+# Ping this URL to wake up server: https://your-app-url.com/health
+# It costs $0 and uses 0 Tavily credits.
+@app.get("/health")
+def health_check():
+    return {"status": "alive", "time": datetime.now().strftime("%H:%M:%S")}
+
 @app.get("/")
 def home():
     return FileResponse("index.html")
