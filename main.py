@@ -1,8 +1,7 @@
 from fastapi import FastAPI, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 import os, json, base64
-from datetime import datetime
 from groq import Groq
 
 # ---------------- CONFIG ----------------
@@ -18,14 +17,14 @@ app.add_middleware(
 )
 
 @app.get("/")
-async def root():
+def home():
     return FileResponse("index.html")
 
 def encode_image(img):
     return base64.b64encode(img).decode("utf-8")
 
 # -------- DEFAULT SAFE RESPONSE ----------
-def safe_response():
+def base_response():
     return {
         "claim_type": "Unknown",
         "verdict": "Unverified",
@@ -38,31 +37,25 @@ def safe_response():
         "estimated_sources": []
     }
 
-# ----------------------------------------
 @app.post("/check")
 async def check_trust(text: str = Form(...), image: UploadFile = File(None)):
 
-    base = safe_response()
-    today = datetime.now().strftime("%d %B %Y")
+    result = base_response()
 
-    system_prompt = f"""
-You are an OFFLINE credibility assessment engine.
-You do NOT browse the internet.
-
-TASK:
-Classify and assess credibility.
+    system_prompt = """
+You are an OFFLINE credibility assessment AI.
+You DO NOT browse the internet.
 
 Rules:
-- Opinion → Unverified (NOT Fake)
+- Opinion → Unverified (not Fake)
 - Rumor / Prediction → Unverified
-- Breaking-News → Unverified
-- VERIFIED requires strong historical certainty
-- If unsure → Unverified
+- Breaking News → Unverified
+- False → only if clearly debunked historically
+- Verified → only for well-known historical facts
 
-Return STRICT JSON with ALL fields filled.
+Return STRICT JSON with ALL fields:
 
-JSON FORMAT:
-{{
+{
  "claim_type": "",
  "verdict": "",
  "trust_score": 0,
@@ -71,33 +64,29 @@ JSON FORMAT:
  "bias_rating": "",
  "flags": [],
  "estimated_sources": []
-}}
+}
 """
 
-    # ---- 1. HANDLE IMAGE VS TEXT PROMPT ----
-    messages = []
-    
-    if image:
-        # If image exists, use Llama 3.2 Vision
-        model = "llama-3.2-11b-vision-preview"
-        contents = await image.read()
-        base64_image = encode_image(contents)
-        messages = [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": [
-                {"type": "text", "text": f"Analyze this image and text: {text}"},
-                {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}}
-            ]}
-        ]
-    else:
-        # Text only
-        model = "llama-3.1-8b-instant"
-        messages = [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": text}
-        ]
-
     try:
+        # ---------- IMAGE OR TEXT ----------
+        if image:
+            model = "llama-3.2-11b-vision-preview"
+            img_bytes = await image.read()
+            messages = [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": [
+                    {"type": "text", "text": f"Assess credibility: {text}"},
+                    {"type": "image_url",
+                     "image_url": {"url": f"data:image/jpeg;base64,{encode_image(img_bytes)}"}}
+                ]}
+            ]
+        else:
+            model = "llama-3.1-8b-instant"
+            messages = [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": text}
+            ]
+
         completion = client.chat.completions.create(
             model=model,
             messages=messages,
@@ -107,41 +96,46 @@ JSON FORMAT:
 
         ai = json.loads(completion.choices[0].message.content)
 
-        # ---- SAFE MERGE ----
-        # Start with base defaults, overwrite with AI data only if valid
-        result = base.copy()
-        result.update({k: ai.get(k, base[k]) for k in base})
+        # ---------- SAFE MERGE ----------
+        for key in result:
+            if key in ai and ai[key] not in [None, ""]:
+                result[key] = ai[key]
 
-        # ---- SCORE SAFETY ----
-        if not result["estimated_sources"]:
-            result["trust_score"] = min(result["trust_score"], 50)
-            if result["verdict"] == "Verified":
-                result["verdict"] = "Unverified"
-                result["explanation"] += " (Downgraded: No sources found in memory.)"
+        # ---------- LOGIC ENFORCEMENT ----------
 
-        # ---- OPINION RULE ----
+        # Opinion rule
         if result["claim_type"] == "Opinion":
             result["verdict"] = "Unverified"
             result["trust_score"] = 50
             result["risk_level"] = "Medium"
 
-        # ---- CONFIDENCE BAND ----
-        s = result["trust_score"]
-        if s <= 30:
+        # Rumor / Prediction rule
+        if result["claim_type"] in ["Rumor", "Prediction", "Breaking-News"]:
+            result["verdict"] = "Unverified"
+            result["trust_score"] = min(result["trust_score"], 50)
+            result["risk_level"] = "Medium"
+
+        # Verified requires sources
+        if not result["estimated_sources"]:
+            result["trust_score"] = min(result["trust_score"], 50)
+            if result["verdict"] == "Verified":
+                result["verdict"] = "Unverified"
+
+        # Confidence band
+        score = result["trust_score"]
+        if score <= 30:
             result["confidence_band"] = "Low"
-        elif s <= 60:
+        elif score <= 60:
             result["confidence_band"] = "Medium"
         else:
             result["confidence_band"] = "High"
 
-        # ---- FINAL GUARANTEE ----
-        # Ensure no None values exist
-        for key in base:
-            if result.get(key) is None:
-                result[key] = base[key]
+        # Risk fallback
+        if not result["risk_level"]:
+            result["risk_level"] = "Medium"
 
-        return result
+        return JSONResponse(result)
 
     except Exception as e:
-        print(f"Error: {e}")
-        return safe_response()
+        print("ERROR:", e)
+        return JSONResponse(base_response())
