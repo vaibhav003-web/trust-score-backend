@@ -18,7 +18,7 @@
             box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
         }
 
-        /* THE STAMP EFFECT - The Mass Market "Hook" */
+        /* THE STAMP EFFECT */
         .stamp-box {
             position: relative;
             display: inline-block;
@@ -29,7 +29,7 @@
             border: 5px solid;
             border-radius: 10px;
             transform: rotate(-12deg);
-            opacity: 0; /* Hidden initially, shown on analyze */
+            opacity: 0;
             animation: stampIn 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
             animation-delay: 0.2s;
             letter-spacing: 0.1em;
@@ -57,13 +57,11 @@
             text-shadow: 0 0 15px rgba(245, 158, 11, 0.5);
         }
 
-        /* Animation for Stamp Landing */
         @keyframes stampIn {
             0% { transform: scale(3) rotate(0deg); opacity: 0; }
             100% { transform: scale(1) rotate(-12deg); opacity: 0.9; }
         }
 
-        /* Report Paper Look */
         .report-card {
             background: #1e293b;
             border-top: 4px solid #3b82f6;
@@ -83,9 +81,11 @@
             </div>
             <span class="text-xl font-bold tracking-tight text-white">Verif<span class="text-blue-500">AI</span></span>
         </div>
-        <div class="text-xs font-mono text-slate-500 border border-slate-800 px-2 py-1 rounded bg-slate-900">
-            SECURE // OFFLINE
-        </div>
+        
+        <a href="https://buymeacoffee.com/trustscore" target="_blank" class="flex items-center gap-2 px-3 py-1.5 rounded-full bg-yellow-500/10 text-yellow-500 hover:bg-yellow-500/20 transition-all border border-yellow-500/20 group">
+            <i class="fas fa-mug-hot text-xs group-hover:animate-bounce"></i> 
+            <span class="text-xs font-bold tracking-wide">Buy Me a Coffee</span>
+        </a>
     </nav>
 
     <main class="max-w-xl mx-auto px-4 pt-8 pb-20">
@@ -121,7 +121,7 @@
 
                 <div class="p-8 text-center relative">
                     <div id="stampContainer" class="mb-6 h-24 flex items-center justify-center relative z-20">
-                        </div>
+                    </div>
 
                     <h2 id="verdictSubtitle" class="text-slate-400 text-xs font-bold uppercase tracking-[0.2em] mb-4">CLAIM ANALYSIS</h2>
                     
@@ -188,7 +188,6 @@
             
             if (!text) return alert("Please enter text.");
             
-            // UI Loading
             btn.disabled = true;
             btn.innerHTML = '<i class="fas fa-circle-notch fa-spin"></i> Audit Running...';
             document.getElementById("results").classList.add("hidden");
@@ -201,25 +200,21 @@
                 const data = await res.json();
                 currentResult = data;
                 
-                // --- RENDER UI ---
                 document.getElementById("results").classList.remove("hidden");
                 
-                // 1. GENERATE STAMP HTML
+                // STAMP LOGIC
                 const verdict = data.verdict || "UNVERIFIED";
                 let stampClass = "stamp-unverified";
                 if(verdict === "Verified" || verdict === "History Match") stampClass = "stamp-verified";
                 if(verdict === "False") stampClass = "stamp-false";
 
                 const stampContainer = document.getElementById("stampContainer");
-                // Reset animation
                 stampContainer.innerHTML = '';
-                void stampContainer.offsetWidth; // Trigger reflow
+                void stampContainer.offsetWidth; 
                 stampContainer.innerHTML = `<div class="stamp-box ${stampClass}">${verdict}</div>`;
 
-                // 2. FILL DATA
                 document.getElementById("verdictSubtitle").innerText = `CLAIM TYPE: ${data.claim_type || "UNKNOWN"}`;
                 
-                // Colors for score
                 const scoreEl = document.getElementById("scoreVal");
                 scoreEl.innerText = data.trust_score;
                 if(data.trust_score > 60) scoreEl.className = "text-4xl font-black text-green-400";
@@ -231,7 +226,6 @@
 
                 document.getElementById("explanation").innerText = data.explanation || "No explanation provided.";
 
-                // Flags
                 const flags = document.getElementById("flagsList");
                 flags.innerHTML = "";
                 if(data.flags && data.flags.length) {
@@ -240,7 +234,6 @@
                     flags.innerHTML = "<li class='text-slate-500 text-xs italic'>No specific risk flags detected.</li>";
                 }
 
-                // Sources
                 const sources = document.getElementById("sourcesList");
                 sources.innerHTML = "";
                 if(data.estimated_sources && data.estimated_sources.length) {
